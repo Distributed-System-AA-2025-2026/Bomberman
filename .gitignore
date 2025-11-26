@@ -1,0 +1,142 @@
+########################
+# Python
+########################
+__pycache__/
+*.py[cod]
+*$py.class
+
+# File temporanei / cache
+*.log
+*.pot
+*.pyc
+*.pyo
+*.pyd
+
+########################
+# Build / deployment
+########################
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+########################
+# Environment and virtualenv
+########################
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+########################
+# Tooling / packaging
+########################
+pip-log.txt
+pip-delete-this-directory.txt
+.pybuilder/
+target/
+poetry.lock
+
+########################
+# Test / coverage
+########################
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+########################
+# Frameworks
+########################
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask
+instance/
+.webassets-cache
+
+########################
+# Jupyter Notebook
+########################
+.ipynb_checkpoints/
+.profile_default/
+ipython_config.py
+
+########################
+# Analisys
+########################
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.pyright/
+
+########################
+# IDE: PyCharm / JetBrains
+########################
+.idea/
+*.iml
+.idea_modules/
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/dictionaries
+.idea/httpRequests/
+.idea/usage.statistics.xml
+
+########################
+# IDE: VS Code
+########################
+.vscode/
+.vscode-test/
+.history/
+*.code-workspace
+
+########################
+# Operating systems
+########################
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.tmp
+.swp
+.swo
