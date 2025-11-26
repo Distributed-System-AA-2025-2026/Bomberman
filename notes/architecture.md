@@ -1,118 +1,143 @@
-# Progetto Bomberman – Architettura
+# Bomberman Project – Architecture
 
-## 1. Obiettivo e scelte di base
+## 1. Objective and Basic Choices
 
-Vogliamo realizzare un Bomberman multiplayer con:
-- **Matchmaking via REST** (tollerante a latenze, facile da rendere idempotente).
-- **Realtime via socket** (bassa latenza, flusso continuo di input/stato).
-- Scelta CAP:
-  - **Lobby orientata a CP** (I membri rimuovono i nodi morti se entro X secondi questi non rispondono - implica la presenza di nodo di bootstrapping condiviso).
-  - **Stanza orientata a CP con “A best effort”** (stato di gioco unico e consistente; la disponibilità globale resta alta disconnettendo client instabili).
+We want to build a multiplayer Bomberman with:
+- **Matchmaking via REST** (latency tolerant, easy to make idempotent).
+- **Realtime via socket** (low latency, continuous flow of input/state).
+- CAP Choice:
+  - **AP-oriented hub (eventual consistency)**
+  Each hub maintains room memberships and directories locally; dead nodes are removed after a local timeout, and information is propagated via gossip.
+  - **CP-oriented room with “Best effort”** (single and consistent game state; global availability remains high by disconnecting unstable clients).
 
 ---
 
-## 2. Componenti principali
+## 2. Main Components
 
-### 2.1 Lobby servers (matchmaking)
-- I lobby server sono peer ma usano un leader attivo per serializzare membership; il leader può cambiare con elezione, se il leader precedente muore.
-- Ogni lobby mantiene una tabella dei peer noti:
-  - `known_lobbies = {id, address, last_seen}`
-- La membership è tenuta aggiornata con:
-  - **heartbeat periodici** tra lobby;
-  - **timeout/expiry**: se un peer non è visto da `T_expire`, viene rimosso.
-- Un nuovo lobby server entra contattando un **seed** indicato a runtime, riceve lista peer (da nodo bootstrap) e inizia heartbeat/gossip leggero.
+### 2.1 Hub Servers (Matchmaking)
+- Hub servers are **pure peers**.
+Each hub makes decisions locally and replicates membership and rooms via epidemic gossip with a last-writer-wins (LWW) rule based on a timestamp/logical clock.
+- Each hub maintains a table of known peers:
+- `known_lobbies = {id, address, last_seen, status}`
+- Each hub also maintains a local room directory, also replicated via gossip:
+- `known_rooms = {room_id -> room_info, last_update, ...}`
+- Membership is kept up-to-date with:
+- Periodic heartbeats between hubs;
+- Local timeout/expiry: If a peer is not seen by `T_expire`, it is marked as `DOWN` and removed locally;
+- Gossip: Changes (JOIN/LEAVE/FAIL) are propagated to other hubs.
+- A new hub server joins by contacting a seed specified at runtime, receives:
+- peer list,
+- snapshot of the room directory,
+and immediately begins heartbeat/gossip.
 
-### 2.2 Gestione peers lobby
-Il server iniziale non ha un server a cui collegarsi e diventa il leader dei lobby.
-#### 2.2.1 Connessione di un nuovo server lobby
-Il nuovo nodo `N` si collega a un nodo qualunque `X`. A questo punto `X` invia a `N` tutto lo stato delle lobby. (Soprattutto i peers).
+### 2.2 Hub Peer Management
+The initial server has no server to connect to and simply becomes the first node/seed of the cluster.
 
-`N` comunica la sua presenza al leader (`L`) che lo autentica (se la votazione di almeno `N/2` host è favorevole), va tutto a buon file, allora `L` comunica che `N` esiste e fornisce il suo `IP` (o hostname in k8s) con la porta. Finchè il leader non lo autentica `N` è in uno stato readonly.
+#### 2.2.1 Connecting a New Hub Server
+The new node `N` connects to any node `X`. At this point, `X` sends all hub and room status (membership + room directory) to `N`.
 
-#### 2.2.2 Disconnessione di un server lobby (non leader)
-Quando un nodo (`X`) non risponde più, allora il leader comunica a tutti che il nodo `X` è caduto, anche qui previa votazione, quindi si procede alla sua rimozione dalla lista di nodi  
+From here on:
 
-#### 2.2.3 Disconnessione di un server lobby (leader)
-Quando il leader `L` non risponde più, allora, essendo la lista di nodi ordinata su ogni peer, si inizia a comunicare col secondo nodo, che diventa il leader (previa votazione di tutti gli altri host - Servono almeno `N/2` host), quindi il nuovo leader `L'` comunica la rimozione di `L`.
+- `N` begins sending heartbeat/gossip to `X` and the other peers it has just learned.
+- Each peer that sees `N` for the first time:
+- adds it to `known_lobbies` with the status `JOINING/UP`;
+- propagates the presence of `N` in the next gossip.
 
-Il timeout per ogni nodo (leader e non) deve essere specificato.  
+As soon as `N` enters the gossip, it is considered active by the other peers (possibly at different times, but with eventual convergence).
 
+#### 2.2.2 Disconnecting a Hub Server
+When a node (`X`) becomes unresponsive:
 
-### 2.3 Room servers (partita)
-- Ogni room server gestisce una stanza/partita:
-  - mantiene lo **stato authoritative** (posizioni, bombe, esplosioni, power–up, punteggi);
-  - processa input dei client;
-  - invia ai client snapshot/delta di stato.
+- Each hub that hasn't received a heartbeat from `X` for more than `T_expire`:
+- Marks `X` as `DOWN` or removes it from `known_lobbies`;
+- Includes this information in the next gossip.
+- Over time, all peers participating in the gossip converge on the "`X` is dead" view.
+
+### 2.3 Room Servers (Game)
+- Each room server manages a room/game:
+- Maintains the **authoritative state** (positions, bombs, explosions, power-ups, scores);
+- Processes client input;
+- Sends state snapshots/deltas to clients.
 
 ---
 
 ## 3. Matchmaking
 
-### 3.1 Creazione / assegnazione stanza
-1. Un client contatta un lobby server `X` via REST chiedendo di giocare.
-2. `X` controlla le stanze **in avvio** che conosce localmente.
-3. Se non ne ha, chiede ai peer vivi se hanno stanze in avvio.
-4. Se un peer risponde con una stanza disponibile, `X` restituisce al client un **token di accesso** a quella stanza.
-5. Se nessun peer ha stanze in avvio, `X` crea una nuova stanza evitando gare con gli altri lobby tramite **claim con lease**:
-   - `X` genera `room_id`;
-   - annuncia ai peer: “sto creando `room_id`” con TTL (`lease_TTL`); (devono accettare la creazione della nuova stanza - richiede comunque `N/2` host )
-   - finché la lease è valida, gli altri lobby considerano la stanza “in avvio” e non ne creano una concorrente per lo stesso slot di matchmaking;
-   - se la stanza non diventa attiva entro TTL, l’annuncio scade automaticamente.
+### 3.1 Room Creation / Assignment
+1. A client contacts a hub server `X` via REST requesting to play.
+2. `X` checks for starting or open rooms it knows about locally (local room directory).
+3. In best-effort mode, `X` can use:
+- updated status via gossip;
+- or ask some peers (e.g., one or a few) if they have any starting rooms.
+The response is not synchronized across all nodes and may be partial, but is sufficient for the AP.
+4. If a peer responds with an available room, `X` returns an access token to that room to the client.
+5. If no peer has any starting rooms (as far as `X` knows at that time), `X` creates a new room locally:
+- `X` generates a globally unique `room_id`;
+- registers the room in its room directory as `PENDING/STARTING` with a `lease_TTL` (timestamp `last_update`);
+- propagates the update via gossip to other hubs (LWW / eventual consistency);
+- other hubs receiving the update begin seeing that room as "starting" and can assign it to clients.
 
-> In pratica: la lobby privilegia disponibilità e velocità di matchmaking. In caso di partizione, solo il gruppo che mantiene quorum può creare nuove stanze; i nodi in minoranza rifiutano matchmaking (A best effort).
+If the room does not become active within the TTL (e.g., the game does not start, no clients join):
+- `X` (and then the others, via gossip) marks the room as expired/closed (tombstone).
 
-### 3.2 Idempotenza REST
-- Le richieste “dammi una stanza” sono idempotenti:
-  - il client include un `request_id`;
-  - se ritenta entro un TTL, riceve **lo stesso token**.
-- Questo evita di creare stanze extra solo perché il client ha avuto un timeout di rete.
+> In practice: the hub prioritizes **availability** and matchmaking speed.
+> Each hub can continue to serve requests even in the presence of partitions, using its own local state and the state propagated via gossip.
+> Accepted compromise: in rare cases, **more rooms than necessary** may be created (e.g., two hubs in different partitions each create a room); This is an accepted anomaly in AP and can be mitigated with cleanup policies (automatically closing empty or rarely used rooms).
+
+### 3.2 REST Idempotence
+- "Give me a room" requests are idempotent:
+- the client includes a `request_id`;
+- if it retries within a TTL, it receives **the same token** (as long as the associated room is still valid);
+
+This prevents the creation of extra rooms just because the client has timed out.
 
 ---
 
-## 4. Token di stanza
+## 4. Room Token
 
 - Payload:
-  ```json
-  {
-    "room_id": "...", //Id della stanza
-    "lobby_id": "...", //Lobby che ha generato la stanza
-    "issued_at": "...", //Data creazione
-    "expires_at": "..." //Data di scadenza (segue l'avvio della partita, se arriva ci sono abbastanza giocatori)
-  }
+```json
+{
+"room_id": "...", //Room ID
+"hub_id": "...", //Hub that generated the room
+"issued_at": "...", //Creation date
+"expires_at": "..." //Expiration date (follows the game start, if there are enough players)
+}
+```
+---
+## 5. Game realtime in the room (CP best effort)
 
-## 5. Realtime di gioco nella stanza (CP best effort)
+### 5.1 Connection
+1. The client opens a socket to the room server and presents the token.
+2. The room server validates the token and adds the player to the room.
+3. When the minimum number of players is reached, the room switches to "in game".
 
-### 5.1 Connessione
-1. Il client apre un socket verso il room server e presenta il token.
-2. Il room server valida il token e aggiunge il giocatore alla stanza.
-3. Quando il numero minimo di player è raggiunto, la stanza passa a “in partita”.
+### 5.2 Tick-based Game Loop
+- The room server operates on a fixed tick basis (10 or 20 ticks per second):
+1. Collects inputs received in the current tick;
+2. Sorts them using `seq_num` per client (or logical timestamp);
+3. Updates the game state deterministically;
+4. Sends deltas/snapshots of the state to clients.
+- This makes the order of events independent of network latency.
 
-### 5.2 Game loop a tick
-- Il room server lavora a **tick fissi** (10 oppure 20 ogni secondo):
-  1. raccoglie input ricevuti nel tick corrente;
-  2. li ordina usando `seq_num` per client (o timestamp logico);
-  3. aggiorna lo stato di gioco in modo deterministico;
-  4. invia ai client delta/snapshot dello stato.
-- Questo rende l’ordine degli eventi indipendente da dalla latenza della rete.
-
-### 5.3 Gestione partizioni e disconnessioni
-- La stanza resta **CP**: lo stato è unico e non viene mai “forkato” sui client.
-- Se un client non comunica per `T_disconnect`:
-  - viene marcato disconnesso e rimosso dal loop;
-  - la partita continua per gli altri (**A best effort globale**).
-- Rejoin (DA VALUTARE CON ENRICO):
-  - opzionale ma chiarito nel progetto: rejoin possibile entro `T_rejoin` riusando il token o un nuovo token di rejoin; oltre la finestra, il giocatore è considerato fuori.
+### 5.3 Partition and Disconnect Management
+- The room remains **CP**: the state is unique and is never forked across clients.
+- If a client fails to communicate due to `T_disconnect`:
+  - It is marked disconnected and removed from the loop;
+- The game continues for the others (**Global best effort**).
+- Rejoin (TO BE EVALUATED):
+  - Optional but clarified in the project: rejoining is possible within `T_rejoin` by reusing the token or a new rejoin token; beyond the window, the player is considered out.
 
 ---
 
-## 6. Sintesi CAP per il report
+## 6. CAP Summary for the Report
 
-- **Lobby = CP**  
-  Obiettivo: trovare rapidamente una stanza e far partire partite anche con peer parzialmente irraggiungibili.  
-  Compromesso accettato: in casi rari si creano più stanze del necessario.
+- **Hub = AP (Eventual Consistency)**
+Goal: Allow each hub to perform matchmaking even across network partitions, using local state and gossip (membership + room directory).
+Accepted Tradeoff: Node views may temporarily diverge, and it is possible to create more rooms than necessary; the system converges over time thanks to gossip and cleanup policies.
 
-- **Room = CP (A best effort)**  
-  Obiettivo: stato di gioco unico e consistente, fondamentale per bomb placement, esplosioni e collisioni.  
-  Compromesso accettato: client instabili vengono disconnessi per non contaminare lo stato.
+- **Room = CP (A Best Effort)**
+Goal: A single, consistent game state, essential for bomb placement, explosions, and collisions.
+Accepted Tradeoff: Unstable clients are disconnected to avoid contaminating the state.
 
 ---
