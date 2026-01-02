@@ -1,0 +1,119 @@
+@startuml Bomberman Architecture - High Level Interactions
+
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+actor Client
+participant "Hub A\n(REST)" as HubA
+participant "Hub B" as HubB
+participant "Hub C" as HubC
+participant "Room Server\n(Socket)" as Room
+
+note over HubA, HubC #FFFFE0
+    Hubs continuously exchange gossip
+    (membership + room directory)
+end note
+
+== Phase 1: Matchmaking (REST - AP) ==
+
+Client -> HubA: POST /matchmaking\n(request_id)
+activate HubA
+
+HubA -> HubA: Check local\nroom directory
+
+alt Has available room locally
+    HubA --> Client: 200 OK + Token\n(existing room)
+
+else No available room - query peers (optional)
+    HubA -> HubB: Query available rooms?
+    HubB --> HubA: No rooms available
+
+    note over HubA #LightBlue
+        Create new room:
+        - Generate room_id + token
+        - Register room as STARTING
+        - Set lease_TTL
+    end note
+
+    par Gossip propagation
+        HubA ->> HubB: Gossip: new room created
+        HubA ->> HubC: Gossip: new room created
+    end
+
+    HubA --> Client: 200 OK + Token\n(new room)
+end
+
+deactivate HubA
+
+== Phase 2: Game Connection (Socket - CP) ==
+
+Client -> Room: Connect Socket +\nPresent Token
+activate Room
+
+Room -> Room: Validate token\n(room_id, expiry,\nsignature)
+
+alt Token valid
+    Room -> Room: Add player\nto room
+    Room --> Client: Connection accepted
+
+    note over Room #LightGreen
+        Wait for minimum players...
+    end note
+
+    opt When min players reached
+        Room -> Room: Start game\nInitialize game state
+        Room --> Client: Game started
+    end
+
+else Token invalid/expired
+    Room --> Client: Reject connection
+    deactivate Room
+end
+
+== Phase 3: Game Loop (Tick-based - CP) ==
+
+loop Every tick (50-100ms)
+    Client -> Room: Player input\n(move, bomb, seq_num)
+
+    note over Room #FFFFE0
+        1. Collect all inputs
+        2. Sort by seq_num
+        3. Update game state
+    end note
+
+    Room -> Room: Process inputs\ndeterministically
+
+    Room --> Client: State delta/snapshot\n(positions, bombs, explosions)
+end
+
+== Phase 4: Disconnect (Best Effort) ==
+
+alt Client timeout
+    note over Room #FFE0E0
+        No input for T_disconnect
+    end note
+
+    Room -> Room: Mark player disconnected\nRemove from game loop
+    Room --> Client: Disconnect notification\n(if reachable)
+    deactivate Room
+end
+
+opt Gossip update
+    Room -> HubA: Room status update\n(player left)
+    HubA ->> HubB: Gossip: room status changed
+    HubA ->> HubC: Gossip: room status changed
+end
+
+== Background: Continuous Hub Gossip ==
+
+note over HubA, HubC #E0E0FF
+    **Continuous background process:**
+    - Heartbeats between Hubs
+    - Epidemic gossip protocol
+    - Peer membership (JOIN/LEAVE/FAIL)
+    - Room directory synchronization
+    - Last-Writer-Wins conflict resolution
+end note
+
+@enduml
