@@ -1,5 +1,11 @@
 # Bomberman Project – Architecture
 
+## Overview - High-Level Interaction Flow
+
+The following diagram illustrates the complete interaction flow between clients, Hub servers (matchmaking), and Room servers (game):
+
+![Sequence Diagram](./diagrams/sequence.png)
+
 ## 1. Objective and Basic Choices
 
 We want to build a multiplayer Bomberman with:
@@ -29,6 +35,12 @@ Each hub makes decisions locally and replicates membership and rooms via epidemi
 - peer list,
 - snapshot of the room directory,
 and immediately begins heartbeat/gossip.
+
+#### Hub Communication Architecture
+
+The diagram below shows how Hub pods communicate with each other via gossip protocol and how they interact with Room pods:
+
+![Hub High-Level Communication](./hub_high_level.png)
 
 ### 2.2 Hub Peer Management
 The initial server has no server to connect to and simply becomes the first node/seed of the cluster.
