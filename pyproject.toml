@@ -7,7 +7,7 @@ authors = [
     { name = "Daniele Romanella" }
 ]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 
 dependencies = []
@@ -17,6 +17,7 @@ bomberman = "bomberman.__main__:main"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
+pytest-cov = "^7.0.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
