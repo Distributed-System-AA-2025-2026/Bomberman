@@ -4,10 +4,10 @@ import threading
 import json
 from typing import Callable
 
-from common.ServerReference import ServerReference
-from hub_server.HubState import HubState
-from hub_server.gossip import messages_pb2 as pb
-from hub_server.gossip.messages_pb2 import GossipMessage
+from bomberman.common.ServerReference import ServerReference
+from bomberman.hub_server.HubState import HubState
+from bomberman.hub_server.gossip import messages_pb2 as pb
+from bomberman.hub_server.gossip.messages_pb2 import GossipMessage
 
 BUFFER_SIZE = 65535  # max UDP datagram size
 

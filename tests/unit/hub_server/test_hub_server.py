@@ -1,6 +1,6 @@
 # test_hub_server.py
 import pytest
-from hub_server.HubServer import get_hub_index
+from bomberman.hub_server.HubServer import get_hub_index
 
 
 class TestGetHubIndex:

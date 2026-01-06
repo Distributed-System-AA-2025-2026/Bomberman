@@ -1,7 +1,7 @@
 from typing import Literal
 import time
 
-from common.ServerReference import ServerReference
+from bomberman.common.ServerReference import ServerReference
 
 class HubPeer:
     _reference: ServerReference

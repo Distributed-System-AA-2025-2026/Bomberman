@@ -1,4 +1,4 @@
-from hub_server.HubPeer import HubPeer
+from bomberman.hub_server.HubPeer import HubPeer
 
 
 class HubState:

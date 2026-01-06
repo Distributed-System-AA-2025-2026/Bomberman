@@ -4,11 +4,10 @@ import time
 from typing import Literal
 import re
 
-from common.ServerReference import ServerReference
-from hub_server.HubPeer import HubPeer
-from hub_server.HubState import HubState
-from hub_server.HubSocketHandler import HubSocketHandler
-from hub_server.gossip import messages_pb2 as pb
+from bomberman.common.ServerReference import ServerReference
+from bomberman.hub_server.HubState import HubState
+from bomberman.hub_server.HubSocketHandler import HubSocketHandler
+from bomberman.hub_server.gossip import messages_pb2 as pb
 
 
 def get_hub_index(hostname: str) -> int:
