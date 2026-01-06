@@ -1,13 +1,14 @@
-from common.ServerReference import ServerReference
+from hub_server.HubPeer import HubPeer
 
 
 class HubState:
-    peers: list[ServerReference]
+    _peers: list[HubPeer | None]
 
 
     def __init__(self):
-        self.peers = []
+        self._peers = []
 
-
-    def set_peers(self, peers: list[ServerReference]):
-        self.peers = peers
+    def add_peer(self, peer: HubPeer) -> None:
+        while peer.get_index() <= len(self._peers):
+            self._peers.append(None)
+        self._peers[peer.get_index()] = peer
