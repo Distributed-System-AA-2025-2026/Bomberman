@@ -1,4 +1,3 @@
-import threading
 import os
 import time
 from typing import Literal
@@ -8,6 +7,7 @@ from bomberman.common.ServerReference import ServerReference
 from bomberman.hub_server.HubState import HubState
 from bomberman.hub_server.HubSocketHandler import HubSocketHandler
 from bomberman.hub_server.gossip import messages_pb2 as pb
+from hub_server.HubPeer import HubPeer
 
 
 def get_hub_index(hostname: str) -> int:
@@ -26,18 +26,17 @@ def print_console(message: str, category: Literal['Error', 'Gossip', 'Info'] = '
     print(f"[HubServer][{category}]: {message}")
 
 class HubServer:
-    _lock: threading.Lock
     _hostname: str
     _hub_index: int
     _state: HubState
     _socket_handler: HubSocketHandler
+    _discovery_mode: Literal['manual', 'k8s']
 
     def __init__(self, discovery_mode: Literal['manual', 'k8s'] = "manual"):
         self._state = HubState()
-        self._lock = threading.Lock()
         self._hostname = os.environ["HOSTNAME"]
-        self._peers = []
-        self._socket_handler = HubSocketHandler(int(os.environ['GOSSIP_PORT']), self._on_gossip_message, self._state)
+        self._socket_handler = HubSocketHandler(int(os.environ['GOSSIP_PORT']), self._on_new_message, self.calculate_server_reference, self._state)
+        self._discovery_mode = discovery_mode
 
         try:
             self._hub_index = get_hub_index(self._hostname)
@@ -45,11 +44,15 @@ class HubServer:
             print_console("Unable to retrieve hub index", "Error")
 
         self._socket_handler.start()
-        self.discovery_peers(discovery_mode)
+        self._state.add_peer(HubPeer(
+            ServerReference('127.0.0.1', int(os.environ['GOSSIP_PORT'])),
+            self._hub_index
+        ))
+        self.discovery_peers()
         print_console(f"Hub server started with index {self._hub_index}", "Info")
 
-    def discovery_peers(self, discovery_mode: Literal['manual', 'k8s'] = "manual"):
-        if discovery_mode == "manual" and self._hub_index != 0:
+    def discovery_peers(self):
+        if self._discovery_mode == "manual" and self._hub_index != 0:
             msg = pb.GossipMessage(
                 nonce=1,
                 origin=self._hub_index,
@@ -61,15 +64,19 @@ class HubServer:
                 )
             )
             self._socket_handler.send(msg, ServerReference('127.0.0.1', 9000))
-        if discovery_mode == "k8s":
+        if self._discovery_mode == "k8s":
             pass
 
+    def _on_new_message(self, message: pb.GossipMessage, forwarding_peer: ServerReference):
+        pass
 
 
 
-    def _on_gossip_message(self, message: pb.GossipMessage, sender_address: ServerReference):
-        pass #TODO: Handle messages here
-
+    def calculate_server_reference(self, origin_peer_index: int) -> ServerReference:
+        if self._discovery_mode == "manual":
+            return ServerReference('127.0.0.1', int(os.environ['GOSSIP_PORT']) + origin_peer_index)
+        if self._discovery_mode == "k8s":
+            return ServerReference(f"hub-{origin_peer_index}", int(os.environ['GOSSIP_PORT'])) #TODO HANDLE WITH K8s DOMAIN NAMES
 
 
 
