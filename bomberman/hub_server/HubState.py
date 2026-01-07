@@ -9,7 +9,6 @@ class HubState:
     _peers: list[HubPeer | None]
     _lock: threading.RLock
 
-
     def __init__(self):
         self._lock = threading.RLock()
         self._peers = []
@@ -42,7 +41,6 @@ class HubState:
                 return self._peers[required_peer]
             return None
 
-
     def execute_heartbeat_check(self, origin_index: int, received_heart_beat: int) -> bool:
         """
         Aggiorna l'heartbeat di un peer se quello ricevuto è più recente.
@@ -59,7 +57,26 @@ class HubState:
             if self.get_peer(origin_index) is None:
                 return False
             last_heartbeat = self._peers[origin_index].heartbeat
-            if last_heartbeat < received_heart_beat:
+            if last_heartbeat < received_heart_beat or self.get_peer(origin_index).status == 'dead':
                 self._peers[origin_index].heartbeat = received_heart_beat
+                self._peers[origin_index].status = 'alive'
                 return True
         return False
+
+    def remove_peer(self, leaving_peer: int) -> None:
+        self._peers[leaving_peer].status = 'dead'
+
+    def get_all_not_dead_peers(self, exclude_peers : int = -1) -> list[HubPeer]:
+        """ Return a list of not dead peers (alive or suspected)"""
+        with self._lock:
+            return list(filter(
+                lambda p: p is not None and p.status != 'dead' and p.index != exclude_peers,
+                self._peers
+            ))
+
+    def update_heartbeat(self, peer_index: int, last_heartbeat: int) -> None:
+        with self._lock:
+            peer = self.get_peer(peer_index)
+            if peer is None:
+                return
+            peer.heartbeat = last_heartbeat

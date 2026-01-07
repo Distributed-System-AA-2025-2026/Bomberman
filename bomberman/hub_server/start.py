@@ -18,6 +18,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown phase
+    hub_server.stop()
+    del hub_server
 
 app = FastAPI(lifespan=lifespan)
 
