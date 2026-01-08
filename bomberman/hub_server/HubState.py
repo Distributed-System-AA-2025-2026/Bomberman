@@ -1,5 +1,6 @@
 import time
 import threading
+from typing import Literal
 
 from bomberman.hub_server.HubPeer import HubPeer
 from common.ServerReference import ServerReference
@@ -41,7 +42,7 @@ class HubState:
                 return self._peers[required_peer]
             return None
 
-    def execute_heartbeat_check(self, origin_index: int, received_heart_beat: int) -> bool:
+    def execute_heartbeat_check(self, origin_index: int, received_heart_beat: int, is_peer_leaving: bool = False) -> bool:
         """
         Aggiorna l'heartbeat di un peer se quello ricevuto è più recente.
 
@@ -57,9 +58,22 @@ class HubState:
             if self.get_peer(origin_index) is None:
                 return False
             last_heartbeat = self._peers[origin_index].heartbeat
-            if last_heartbeat < received_heart_beat or self.get_peer(origin_index).status == 'dead':
+
+            # Avoid quit message propagation
+            if self.get_peer(origin_index).status == 'dead' and is_peer_leaving:
+                return False
+
+            # Peer returns!
+            if self.get_peer(origin_index).status == 'dead' and not is_peer_leaving:
                 self._peers[origin_index].heartbeat = received_heart_beat
                 self._peers[origin_index].status = 'alive'
+                return True
+
+            if last_heartbeat < received_heart_beat:
+                self._peers[origin_index].heartbeat = received_heart_beat
+                self._peers[origin_index].status = 'alive'
+                if is_peer_leaving:
+                    self._peers[origin_index].status = 'dead'
                 return True
         return False
 
@@ -80,3 +94,29 @@ class HubState:
             if peer is None:
                 return
             peer.heartbeat = last_heartbeat
+
+    def get_all_peers(self, exclude: list[int] = None) -> list[HubPeer]:
+        """Returns all existent peer, excluding those in the exclude list"""
+        if exclude is None:
+            exclude = []
+        with self._lock:
+            return [
+                p for p in self._peers
+                if p is not None and p.index not in exclude
+            ]
+
+    def set_peer_status(self, peer_index: int, status: Literal['alive', 'suspected', 'dead']) -> None:
+        with self._lock:
+            peer = self.get_peer(peer_index)
+            if peer is not None:
+                peer.status = status
+
+    def mark_peer_explicitly_alive(self, peer_index: int) -> None:
+        """
+        Called when a PEER_ALIVE is received. Update all (include the last_seen param)
+        """
+        with self._lock:
+            peer = self.get_peer(peer_index)
+            if peer is not None:
+                peer.last_seen = time.time()
+                peer.status = 'alive'
