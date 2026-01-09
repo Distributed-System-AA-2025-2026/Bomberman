@@ -9,8 +9,8 @@ from bomberman.common.ServerReference import ServerReference
 from bomberman.hub_server.HubState import HubState
 from bomberman.hub_server.HubSocketHandler import HubSocketHandler
 from bomberman.hub_server.gossip import messages_pb2 as pb
-from hub_server.FailureDetector import FailureDetector
-from hub_server.HubPeer import HubPeer
+from bomberman.hub_server.FailureDetector import FailureDetector
+from bomberman.hub_server.HubPeer import HubPeer
 
 
 def get_hub_index(hostname: str) -> int:

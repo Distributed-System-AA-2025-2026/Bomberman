@@ -11,6 +11,8 @@ class HubPeer:
     _last_seen: float
 
     def __init__(self, reference: ServerReference, index: int):
+        if index < 0:
+            raise ValueError(f"Index cannot be negative: {index}")
         self._reference = reference
         self._index = index
         self._status = 'alive'
@@ -35,6 +37,8 @@ class HubPeer:
 
     @status.setter
     def status(self, value: Literal['alive', 'suspected', 'dead']):
+        if value not in ('alive', 'suspected', 'dead'):
+            raise ValueError(f"Invalid status: {value}")
         self._status = value
 
     @property
@@ -43,6 +47,8 @@ class HubPeer:
 
     @heartbeat.setter
     def heartbeat(self, value: int):
+        if value < 0:
+            raise ValueError(f"Heartbeat cannot be negative: {value}")
         self._heartbeat = value
 
     @property
@@ -51,4 +57,6 @@ class HubPeer:
 
     @last_seen.setter
     def last_seen(self, value: float):
+        if value < 0:
+            raise ValueError(f"Last seen cannot be negative: {value}")
         self._last_seen = value

@@ -1,9 +1,10 @@
 import time
 import threading
+from multiprocessing.managers import Value
 from typing import Literal
 
 from bomberman.hub_server.HubPeer import HubPeer
-from common.ServerReference import ServerReference
+from bomberman.common.ServerReference import ServerReference
 
 
 class HubState:
@@ -37,6 +38,8 @@ class HubState:
                 self._peers[forwarding_index].status = 'alive'
 
     def get_peer(self, required_peer: int) -> HubPeer | None:
+        if required_peer < 0:
+            raise ValueError("Required peer cannot be negative")
         with self._lock:
             if required_peer < len(self._peers):
                 return self._peers[required_peer]
@@ -78,7 +81,13 @@ class HubState:
         return False
 
     def remove_peer(self, leaving_peer: int) -> None:
-        self._peers[leaving_peer].status = 'dead'
+        with self._lock:
+            if leaving_peer < 0 or leaving_peer >= len(self._peers):
+                raise ValueError
+            peer = self._peers[leaving_peer]
+            if peer is None:
+                raise ValueError
+            peer.status = 'dead'
 
     def get_all_not_dead_peers(self, exclude_peers : int = -1) -> list[HubPeer]:
         """ Return a list of not dead peers (alive or suspected)"""
