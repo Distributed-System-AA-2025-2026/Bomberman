@@ -50,6 +50,10 @@ class HubSocketHandler:
 
     def _handle_message(self, data: bytes, addr: tuple[str, int]):
         """Parsing and callback """
+
+        if self._on_message is None:
+            raise TypeError
+
         try:
             message = pb.GossipMessage()
             message.ParseFromString(data)

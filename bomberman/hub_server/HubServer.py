@@ -47,6 +47,9 @@ class HubServer:
         self._last_used_nonce = 0
         self._fanout = int(os.environ.get("HUB_FANOUT", self._fanout))
 
+        if self._fanout <= 0:
+            raise ValueError(f"Invalid fanout value: {self._fanout}")
+
         # Socket handler - solo networking, logica qui
         self._socket_handler = HubSocketHandler(
             port=int(os.environ['GOSSIP_PORT']),
