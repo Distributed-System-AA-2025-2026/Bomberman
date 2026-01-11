@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package gossip;
+
+enum EventType {
+    //Peer join and left intentionally
+    PEER_JOIN = 0;
+    PEER_LEAVE = 1;
+
+    //Other peers events (peers talk about other peers)
+    PEER_ALIVE = 2; //Sent only from the peer that is considered "suspicious" or "dead"
+    PEER_SUSPICIOUS = 3; //When a peer haven't heard notting from another peer for more than 1 second.
+    PEER_DEAD = 4; //When a peer is considered dead (no messages from more than 10 seconds)
+
+    //Room events
+    ROOM_ACTIVATED = 10; //When a room started accepting players
+    ROOM_STARTED = 11; //When a room started a game
+}
+
+message GossipMessage {
+    int64 nonce = 1; //heartbeat from the SRC (not forwarding) peer
+    int32 origin = 2; //Peer src index
+    int32 forwarded_by = 3; //Peer that is forwarding packet
+    double timestamp = 4; //Crafting message timestamp
+    EventType event_type = 5; //Event type
+
+    oneof payload {
+        PeerJoinPayload peer_join = 10;
+        PeerLeavePayload peer_leave = 11;
+        PeerAlivePayload peer_alive = 12;
+        PeerSuspiciousPayload peer_suspicious = 13;
+        PeerDeadPayload peer_dead = 14;
+        RoomActivatedPayload room_activated = 15;
+        RoomClosedPayload room_closed = 16;
+    }
+
+    // Payload specifico (oneof = un solo campo alla volta)
+    /*
+    oneof payload {
+        PeerAlivePayload peer_alive = 10;
+        PeerDeadPayload peer_dead = 11;
+        RoomCreatedPayload room_created = 12;
+        RoomStartedPayload room_started = 13;
+        RoomClosedPayload room_closed = 14;
+    }
+    */
+}
+
+message PeerJoinPayload {
+    int32 joining_peer = 1;
+}
+
+message PeerLeavePayload {
+    int32 leaving_peer = 1;
+}
+
+message PeerAlivePayload {
+    int32 alive_peer = 1;
+}
+
+message PeerSuspiciousPayload {
+    int32 suspicious_peer = 1;
+}
+
+message PeerDeadPayload {
+    int32 dead_peer = 1;
+}
+
+message RoomActivatedPayload {
+    int32 room_id = 1;
+}
+
+message RoomClosedPayload {
+    int32 room_id = 1;
+}
