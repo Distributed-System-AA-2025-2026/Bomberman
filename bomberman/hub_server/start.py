@@ -58,7 +58,7 @@ def debug_request(request: Request):
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("HTTP_PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
 
     uvicorn.run(f"{__name__}:app", host=host, port=port, reload=True)

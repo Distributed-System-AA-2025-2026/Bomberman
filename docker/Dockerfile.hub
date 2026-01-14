@@ -1,0 +1,39 @@
+# Stage 1: Builder
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Installa dipendenze direttamente (no pyproject.toml parsing issues)
+RUN pip install --no-cache-dir \
+    'fastapi>=0.128.0,<0.129.0' \
+    'uvicorn>=0.40.0,<0.41.0' \
+    'protobuf>=6.33.2,<7.0.0' \
+    'grpcio-tools>=1.76.0,<2.0.0' \
+    --target=/app/dependencies
+
+# Stage 2: Runtime
+FROM python:3.11-slim
+
+# Crea utente non-root
+RUN useradd -m -u 1000 bomberman
+
+WORKDIR /app
+
+# Copia le dipendenze dal builder
+COPY --from=builder /app/dependencies /usr/local/lib/python3.11/site-packages/
+
+# Copia il codice applicazione
+COPY --chown=bomberman:bomberman ./bomberman ./bomberman
+
+# Switch a utente non-root
+USER bomberman
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD python -c "import socket; s=socket.socket(); s.connect(('localhost', 8000)); s.close()" || exit 1
+
+# Esponi porte
+EXPOSE 8000 9000/udp
+
+# Entry point
+CMD ["python", "-m", "bomberman.hub_server"]
