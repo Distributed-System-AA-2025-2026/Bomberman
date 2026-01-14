@@ -8,7 +8,7 @@ metadata:
     component: hub
 spec:
   serviceName: hub-service
-  replicas: 3
+  replicas: 16
   podManagementPolicy: Parallel
   selector:
     matchLabels:
@@ -23,120 +23,136 @@ spec:
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                - key: component
-                  operator: In
-                  values:
-                  - hub
-              topologyKey: kubernetes.io/hostname
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: component
+                      operator: In
+                      values:
+                        - hub
+                topologyKey: kubernetes.io/hostname
 
       containers:
-      - name: hub
-        image: localhost:32000/bomberman-hub:latest
-        imagePullPolicy: Always
+        - name: hub
+          image: bomberman-hub:latest
+          imagePullPolicy: Never
 
-        ports:
-        - name: http
-          containerPort: 8000
-          protocol: TCP
-        - name: gossip
-          containerPort: 9000
-          protocol: UDP
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+            - name: gossip
+              containerPort: 9000
+              protocol: UDP
 
-        env:
-        # POD_NAME (hub-0, hub-1, hub-2)
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
+          env:
+            # POD_NAME (hub-0, hub-1, hub-2)
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
 
-        # NAMESPACE per costruire FQDN
-        - name: NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
+            # NAMESPACE per costruire FQDN
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
 
-        # SERVICE_NAME dal ConfigMap
-        - name: SERVICE_NAME
-          valueFrom:
-            configMapKeyRef:
-              name: hub-config
-              key: SERVICE_NAME
+            # SERVICE_NAME dal ConfigMap
+            - name: SERVICE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: hub-config
+                  key: SERVICE_NAME
 
-        # HOSTNAME = FQDN completo (hub-0.hub-service.bomberman.svc.cluster.local)
-        - name: HOSTNAME
-          value: "$(POD_NAME).$(SERVICE_NAME).$(NAMESPACE).svc.cluster.local"
+            # HOSTNAME = FQDN completo (hub-0.hub-service.bomberman.svc.cluster.local)
+            - name: HOSTNAME
+              value: "$(POD_NAME).$(SERVICE_NAME).$(NAMESPACE).svc.cluster.local"
 
-        # PORT per HTTP API
-        - name: HTTP_PORT
-          valueFrom:
-            configMapKeyRef:
-              name: hub-config
-              key: HTTP_PORT
+            # PORT per HTTP API
+            - name: HTTP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: hub-config
+                  key: HTTP_PORT
 
-        # GOSSIP_PORT per UDP
-        - name: GOSSIP_PORT
-          valueFrom:
-            configMapKeyRef:
-              name: hub-config
-              key: GOSSIP_PORT
-        - name: FAILURE_DETECTOR_CHECK_INTERVAL
-          valueFrom:
-            configMapKeyRef:
-              name: hub-config
-              key: FAILURE_DETECTOR_CHECK_INTERVAL
-        - name: FAILURE_DETECTOR_SUSPECT_TIMEOUT
-          valueFrom:
-            configMapKeyRef:
-              name: hub-config
-              key: FAILURE_DETECTOR_SUSPECT_TIMEOUT
-        - name: FAILURE_DETECTOR_DEAD_TIMEOUT
-          valueFrom:
-            configMapKeyRef:
-              name: hub-config
-              key: FAILURE_DETECTOR_DEAD_TIMEOUT
-        - name: FANOUT
-          valueFrom:
-            configMapKeyRef:
-              name: hub-config
-              key: FANOUT
+            # GOSSIP_PORT per UDP
+            - name: GOSSIP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: hub-config
+                  key: GOSSIP_PORT
 
-        # Health checks
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8000  # Usa porta diretta, non named port
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+            - name: FAILURE_DETECTOR_CHECK_INTERVAL
+              valueFrom:
+                configMapKeyRef:
+                  name: hub-config
+                  key: FAILURE_DETECTOR_CHECK_INTERVAL
 
-        readinessProbe:
-          httpGet:
-            path: /ready
-            port: 8000
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 3
+            - name: FAILURE_DETECTOR_SUSPECT_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: hub-config
+                  key: FAILURE_DETECTOR_SUSPECT_TIMEOUT
 
-        # Resources
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
+            - name: FAILURE_DETECTOR_DEAD_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: hub-config
+                  key: FAILURE_DETECTOR_DEAD_TIMEOUT
 
-        # Security
-        securityContext:
-          runAsNonRoot: true
-          runAsUser: 1000
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
+            - name: FANOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: hub-config
+                  key: FANOUT
+
+            - name: EXPECTED_HUB_COUNT
+              valueFrom:
+                configMapKeyRef:
+                  name: hub-config
+                  key: EXPECTED_HUB_COUNT
+
+            - name: HUB_DISCOVERY_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: hub-config
+                  key: HUB_DISCOVERY_MODE
+
+          # Health checks
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000  # Usa porta diretta, non named port
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Resources
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+          # Security
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL

@@ -5,9 +5,10 @@ metadata:
   namespace: bomberman
 data:
   # HubServer configuration
-  FAILURE_DETECTOR_CHECK_INTERVAL: "1.0"
-  FAILURE_DETECTOR_SUSPECT_TIMEOUT: "5.0"
-  FAILURE_DETECTOR_DEAD_TIMEOUT: "20.0"
+  HUB_DISCOVERY_MODE: "k8s"
+  FAILURE_DETECTOR_CHECK_INTERVAL: "1"
+  FAILURE_DETECTOR_SUSPECT_TIMEOUT: "5"
+  FAILURE_DETECTOR_DEAD_TIMEOUT: "20"
   FANOUT: "4"
 
   # ports
@@ -16,3 +17,4 @@ data:
 
   # Service name for FQDN
   SERVICE_NAME: "hub-service"
+  EXPECTED_HUB_COUNT: "16"

@@ -1,6 +1,7 @@
 import os
 import time
 import random
+from time import sleep
 from typing import Literal
 import re
 from datetime import datetime
@@ -19,6 +20,7 @@ def get_hub_index(hostname: str) -> int:
 
     match = re.match(r"hub-(\d+)(?:\.|$)", hostname)
     if not match:
+        print(f"GIVEN INVALID HOSTNAME: {hostname}")
         raise ValueError(f"Invalid hub hostname: {hostname}")
     string_index = match.group(1)
     output = int(string_index)
@@ -63,8 +65,6 @@ class HubServer:
             self._hub_index
         ))
 
-        self._discovery_peers()
-
         self._failure_detector = FailureDetector(
             state=self._state,
             my_index=self._hub_index,
@@ -75,6 +75,11 @@ class HubServer:
 
 
         print_console(f"Hub server started with index {self._hub_index}", "Info")
+        print_console(f"Hub server started with hostname {self._hostname}", "Info")
+        print_console(f"Hub server started with discovery mode {self._discovery_mode}", "Info")
+
+        sleep(5)
+        self._discovery_peers()
 
     def _on_gossip_message(self, message: pb.GossipMessage, sender: ServerReference):
         # Traccia l'origine se diverso dal forwarder
@@ -162,21 +167,26 @@ class HubServer:
         else:
             return ServerReference(f"hub-{peer_index}.hub-headless", int(os.environ['GOSSIP_PORT']))
 
-    def _discovery_peers(self): #TODO
-        if self._discovery_mode == "manual" and self._hub_index != 0:
-            msg = pb.GossipMessage(
-                nonce=self._get_next_nonce(),
-                origin=self._hub_index,
-                forwarded_by=self._hub_index,
-                timestamp=time.time(),
-                event_type=pb.PEER_JOIN,
-                peer_join=pb.PeerJoinPayload(
-                    joining_peer=self._hub_index
-                )
+    def _discovery_peers(self):
+        peer_no = int(os.environ.get('EXPECTED_HUB_COUNT', 1))
+        discovering_index = random.randrange(0, peer_no, 1)
+
+        msg = pb.GossipMessage(
+            nonce=self._get_next_nonce(),
+            origin=self._hub_index,
+            forwarded_by=self._hub_index,
+            timestamp=time.time(),
+            event_type=pb.PEER_JOIN,
+            peer_join=pb.PeerJoinPayload(
+                joining_peer=self._hub_index
             )
-            self._send_messages_specific_destination(msg, ServerReference('127.0.0.1', 9000))
+        )
+
+        if self._discovery_mode == "manual" and self._hub_index != 0:
+            self._send_messages_specific_destination(msg, ServerReference('127.0.0.1', 9000 + discovering_index))
         if self._discovery_mode == "k8s":
-            pass
+            reference = f"hub-{discovering_index}.hub-service.bomberman.svc.cluster.local"
+            self._send_messages_specific_destination(msg, ServerReference(reference, 9000))
 
     def stop(self):
         msg = pb.GossipMessage(

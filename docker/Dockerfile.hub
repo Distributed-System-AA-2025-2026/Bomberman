@@ -1,15 +1,19 @@
 # Stage 1: Builder
 FROM python:3.11-slim AS builder
 
+# Installa poetry
+RUN pip install --no-cache-dir poetry==1.7.1
+
 WORKDIR /app
 
-# Installa dipendenze direttamente (no pyproject.toml parsing issues)
-RUN pip install --no-cache-dir \
-    'fastapi>=0.128.0,<0.129.0' \
-    'uvicorn>=0.40.0,<0.41.0' \
-    'protobuf>=6.33.2,<7.0.0' \
-    'grpcio-tools>=1.76.0,<2.0.0' \
-    --target=/app/dependencies
+# Configura poetry
+RUN poetry config virtualenvs.create false
+
+# Copia file di configurazione
+COPY pyproject.toml poetry.lock ./
+
+# Installa solo dipendenze runtime
+RUN poetry install --only main --no-root --no-interaction --no-ansi
 
 # Stage 2: Runtime
 FROM python:3.11-slim
@@ -19,10 +23,10 @@ RUN useradd -m -u 1000 bomberman
 
 WORKDIR /app
 
-# Copia le dipendenze dal builder
-COPY --from=builder /app/dependencies /usr/local/lib/python3.11/site-packages/
+# Copia dipendenze dal builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 
-# Copia il codice applicazione
+# Copia codice applicazione
 COPY --chown=bomberman:bomberman ./bomberman ./bomberman
 
 # Switch a utente non-root
