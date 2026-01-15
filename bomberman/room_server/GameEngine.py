@@ -10,7 +10,7 @@ from typing import List, Dict, Optional, Tuple
 TICK_RATE = 10  # Ticks per second, so 1 tick = 0.1 seconds
 BOMB_TIMER_SEC = 2.0  # Seconds will be translated to ticks
 EXPLOSION_DURATION_SEC = 1.0  # Seconds will be translated to ticks
-BOMB_RANGE = 4  # Tiles
+BOMB_RANGE = 2  # Tiles
 
 
 # This is an enumeration for different tile types in the game, needed for serialization.
@@ -255,7 +255,7 @@ class GameEngine:
 
         if verbose:
             snapshot += f"Grid Size: {self.width}x{self.height}\n"
-            snapshot += f"Spawn Points: {[(sp.x, sp.y) for sp in self.spawn_points]}\n"
+            snapshot += f"Free Spawn Points: {[(sp.x, sp.y) for sp in self.spawn_points]}\n"
             snapshot += f"Players: {[p.id for p in self.players]}\n"
             snapshot += f"Bombs: {len(self.bombs)}\n"
             snapshot += f"Current Tick: {self.current_tick} - Time elapsed: {self.current_tick / TICK_RATE:.1f}s\n"
@@ -476,87 +476,89 @@ class GameEngine:
         return is_action_valid
 
 
-PLAY_GAME = True
-if __name__ == "__main__" and not PLAY_GAME:
-    engine = GameEngine(seed=42)
+if __name__ == "__main__":
+    PLAY_GAME = True
+    
+    if not PLAY_GAME:
+        engine = GameEngine(seed=42)
 
-    engine.tick(verbose=True, action=ADD_PLAYER(player_id="Enrico"))
-    engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
-    engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
-    engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
+        engine.tick(verbose=True, action=ADD_PLAYER(player_id="Enrico"))
+        engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
+        engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
+        engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
 
-    print(engine.get_ascii_snapshot())
-else:
-    from GameInputHelper import _Getch, RealTimeInput
+        print(engine.get_ascii_snapshot())
+    else:
+        from GameInputHelper import _Getch, RealTimeInput
 
-    # Initialize Engine
-    engine = GameEngine(seed=42)
+        # Initialize Engine
+        engine = GameEngine(seed=42)
 
-    # Helper to clear terminal
-    def clear_screen():
-        os.system("cls" if os.name == "nt" else "clear")
+        # Helper to clear terminal
+        def clear_screen():
+            os.system("cls" if os.name == "nt" else "clear")
 
-    my_player_id = "Enrico"
+        my_player_id = "Enrico"
 
-    # Initial Setup
-    try:
-        engine.tick(verbose=False, action=ADD_PLAYER(player_id=my_player_id))
-        engine.tick(verbose=False, action=ADD_PLAYER(player_id="Marzia"))
-    except ValueError as e:
-        print(f"Startup Error: {e}")
-        sys.exit(1)
+        # Initial Setup
+        try:
+            engine.tick(verbose=False, action=ADD_PLAYER(player_id=my_player_id))
+            engine.tick(verbose=False, action=ADD_PLAYER(player_id="Marzia"))
+        except ValueError as e:
+            print(f"Startup Error: {e}")
+            sys.exit(1)
 
-    getch = _Getch()
-    message = "Controls: [W, A, S, D] to Move, [E] to Place Bomb, [Q] to Quit."
+        getch = _Getch()
+        message = "Controls: [W, A, S, D] to Move, [E] to Place Bomb, [Q] to Quit."
 
-    with RealTimeInput() as input_handler:
-        while True:
-            # Record start time to manage tick rate
-            start_time = time.time()
+        with RealTimeInput() as input_handler:
+            while True:
+                # Record start time to manage tick rate
+                start_time = time.time()
 
-            clear_screen()
+                clear_screen()
 
-            # Render Game
-            print(engine.get_ascii_snapshot(verbose=True))
-            print(f"Status: {message}")
-            print("-" * 30)
+                # Render Game
+                print(engine.get_ascii_snapshot(verbose=True))
+                print(f"Status: {message}")
+                print("-" * 30)
 
-            # Get Input - Non-blocking - wait for 1/TICK_RATE seconds (frequency) then process tick, if key pressed, process it immediately
+                # Get Input - Non-blocking - wait for 1/TICK_RATE seconds (frequency) then process tick, if key pressed, process it immediately
 
-            key = input_handler.get_key(timeout=1.0 / TICK_RATE)
+                key = input_handler.get_key(timeout=1.0 / TICK_RATE)
 
-            action = None
+                action = None
 
-            # Map Input to Actions
-            if key == "w":
-                action = MOVE_PLAYER(player_id=my_player_id, direction=Direction.UP)
-                message = "Moved UP"
-            elif key == "s":
-                action = MOVE_PLAYER(player_id=my_player_id, direction=Direction.DOWN)
-                message = "Moved DOWN"
-            elif key == "a":
-                action = MOVE_PLAYER(player_id=my_player_id, direction=Direction.LEFT)
-                message = "Moved LEFT"
-            elif key == "d":
-                action = MOVE_PLAYER(player_id=my_player_id, direction=Direction.RIGHT)
-                message = "Moved RIGHT"
-            elif key == "e":
-                action = PLACE_BOMB(player_id=my_player_id)
-                message = "Placed BOMB"
-            elif key == "q":
-                print("Quitting game...")
-                break
-            else:
-                action = STAY()  # Logic for passing time without moving
-                message = "Waiting..."
+                # Map Input to Actions
+                if key == "w":
+                    action = MOVE_PLAYER(player_id=my_player_id, direction=Direction.UP)
+                    message = "Moved UP"
+                elif key == "s":
+                    action = MOVE_PLAYER(player_id=my_player_id, direction=Direction.DOWN)
+                    message = "Moved DOWN"
+                elif key == "a":
+                    action = MOVE_PLAYER(player_id=my_player_id, direction=Direction.LEFT)
+                    message = "Moved LEFT"
+                elif key == "d":
+                    action = MOVE_PLAYER(player_id=my_player_id, direction=Direction.RIGHT)
+                    message = "Moved RIGHT"
+                elif key == "e":
+                    action = PLACE_BOMB(player_id=my_player_id)
+                    message = "Placed BOMB"
+                elif key == "q":
+                    print("Quitting game...")
+                    break
+                else:
+                    action = STAY()  # Logic for passing time without moving
+                    message = "Waiting..."
 
-            # Process Tick
-            engine.tick(verbose=False, action=action)
+                # Process Tick
+                engine.tick(verbose=False, action=action)
 
-            # Calculate how much time to sleep to maintain tick rate
-            elapsed_time = time.time() - start_time
-            sleep_time = max(0, (1.0 / TICK_RATE) - elapsed_time)
-            time.sleep(sleep_time)
+                # Calculate how much time to sleep to maintain tick rate
+                elapsed_time = time.time() - start_time
+                sleep_time = max(0, (1.0 / TICK_RATE) - elapsed_time)
+                time.sleep(sleep_time)
 
-            # Flush any remaining inputs to prevent backlog
-            input_handler.flush()
+                # Flush any remaining inputs to prevent backlog
+                input_handler.flush()
