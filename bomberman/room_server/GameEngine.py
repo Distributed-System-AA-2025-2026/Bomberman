@@ -29,8 +29,9 @@ TILE_PROPERTIES = {
 # Reverse lookup for parsing levels
 SYMBOL_TO_TILE = {v["symbol"]: k for k, v in TILE_PROPERTIES.items()}
 
+
 @dataclass
-class Position():
+class Position:
     """Class representing a position on the grid"""
 
     x: int
@@ -87,10 +88,16 @@ class GameEngine:
     Manages the grid (static map) and state (dynamic entities like players, bombs, and explosions).
     """
 
-    def __init__(self):
-        self.grid, self.width, self.height = self._initialize_grid()
+    players: List[Player] = field(default_factory=list)
+    bombs: List[Bomb] = field(default_factory=list)
+    spawn_points: List[Position] = field(default_factory=list)
 
-    def _initialize_grid(self) -> Tuple[List[List[TileType]], int, int]:
+    def __init__(self):
+        self.grid, self.width, self.height, self.spawn_points = self._initialize_grid()
+        self.players = []
+        self.bombs = []
+
+    def _initialize_grid(self) -> Tuple[List[List[TileType]], int, int, List[Position]]:
         """Helper to try loading file, catching errors, and falling back to default."""
         try:
             return self.generate_grid_from_file()
@@ -101,7 +108,7 @@ class GameEngine:
             print(f"Error parsing level file: {e}. Falling back to empty default grid.")
             return self._create_default_grid()
 
-    def _create_default_grid(self) -> Tuple[List[List[TileType]], int, int]:
+    def _create_default_grid(self) -> Tuple[List[List[TileType]], int, int, List[Position]]:
         """Creates a safe default 11x11 empty grid with 4 spawn points."""
         width, height = 11, 11
         grid = [[TileType.EMPTY for _ in range(width)] for _ in range(height)]  # Create empty grid
@@ -121,11 +128,13 @@ class GameEngine:
         for x, y in spawn_positions:
             grid[y][x] = TileType.SPAWN_POINT
 
-        return grid, width, height
+        spawn_points = [Position(x, y) for x, y in spawn_positions]
+
+        return grid, width, height, spawn_points
 
     def generate_grid_from_file(
         self, file_path: str = "bomberman/room_server/level.txt"
-    ) -> Tuple[List[List[TileType]], int, int]:
+    ) -> Tuple[List[List[TileType]], int, int, List[Position]]:
         """Generate the game grid from a predefined file"""
         grid: List[List[TileType]] = []
         with open(file_path, "r", encoding="utf-8") as file:
@@ -151,18 +160,71 @@ class GameEngine:
         if spawn_count < 2:
             raise ValueError("Level must contain at least 2 spawn points.")
 
-        return grid, width, height
+        spawn_points = []
+        for y, row in enumerate(grid):
+            for x, tile in enumerate(row):
+                if tile == TileType.SPAWN_POINT:
+                    spawn_points.append(Position(x, y))
 
-    def get_ascii_snapshot(self) -> str:
-        """Get ASCII representation of the game grid"""
+        return grid, width, height, spawn_points
+
+    def get_ascii_snapshot(self, verbose: bool = True) -> str:
+        """Get ASCII representation of the game grid with players overlaid."""
         snapshot = ""
-        for row in self.grid:
-            for tile in row:
-                snapshot += TILE_PROPERTIES[tile]["symbol"]
+
+        # Iterate using indices to know exactly where we are
+        for y, row in enumerate(self.grid):
+            for x, tile in enumerate(row):
+                # 1. Start with the static tile symbol
+                symbol = TILE_PROPERTIES[tile]["symbol"]
+
+                # 2. Check if a Player is here (Visual priority over bomb and tile)
+                for player in self.players:
+                    if player.position.x == x and player.position.y == y and player.is_alive:
+                        # Use the first letter of the Player ID
+                        symbol = player.id[0]
+                        break  # Stop looking for other players in this cell
+
+                snapshot += symbol
             snapshot += "\n"
+
+        if verbose:
+            snapshot += f"Grid Size: {self.width}x{self.height}\n"
+            snapshot += f"Spawn Points: {[(sp.x, sp.y) for sp in self.spawn_points]}\n"
+            snapshot += f"Players: {[p.id for p in self.players]}\n"
+            snapshot += f"Bombs: {len(self.bombs)}\n"
+
         return snapshot
+
+    def add_player(self, player_id: str, verbose: bool = True) -> Player:
+        """Add a new player to the game at the specified position"""
+
+        if any(p.id == player_id for p in self.players):
+            raise ValueError(f"Player with ID '{player_id}' already exists.")
+        
+        if not self.spawn_points:
+            raise ValueError("No available spawn points to add a new player.")
+
+
+        # Randomly select a spawn point from available ones
+        spawn_position = random.choice(self.spawn_points)
+
+        # Create and add the new player
+        new_player = Player(id=player_id, position=spawn_position)
+        self.players.append(new_player)
+
+        # Remove the used spawn point from available ones
+        self.spawn_points.remove(spawn_position)
+
+        if verbose:
+            print(f"Player '{player_id}' added at position ({spawn_position.x}, {spawn_position.y})")
+
+        return new_player
 
 
 if __name__ == "__main__":
     engine = GameEngine()
+
+    engine.add_player("Enrico")
+
     print(engine.get_ascii_snapshot())
