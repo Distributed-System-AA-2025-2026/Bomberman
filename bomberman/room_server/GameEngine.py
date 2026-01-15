@@ -81,6 +81,20 @@ class Bomb:
         """Decrease the bomb timer by one tick"""
         self.timer -= 1
 
+class GameAction:
+    """Namespace for game actions"""
+    pass
+
+@dataclass
+class STAY(GameAction):
+    """Empty action"""
+    pass
+
+@dataclass
+class ADD_PLAYER(GameAction):
+    """Action carrying the player ID"""
+    player_id: str
+
 
 class GameEngine:
     """
@@ -91,11 +105,13 @@ class GameEngine:
     players: List[Player] = field(default_factory=list)
     bombs: List[Bomb] = field(default_factory=list)
     spawn_points: List[Position] = field(default_factory=list)
+    current_tick: int
 
     def __init__(self):
         self.grid, self.width, self.height, self.spawn_points = self._initialize_grid()
         self.players = []
         self.bombs = []
+        self.current_tick = 0
 
     def _initialize_grid(self) -> Tuple[List[List[TileType]], int, int, List[Position]]:
         """Helper to try loading file, catching errors, and falling back to default."""
@@ -201,10 +217,9 @@ class GameEngine:
 
         if any(p.id == player_id for p in self.players):
             raise ValueError(f"Player with ID '{player_id}' already exists.")
-        
+
         if not self.spawn_points:
             raise ValueError("No available spawn points to add a new player.")
-
 
         # Randomly select a spawn point from available ones
         spawn_position = random.choice(self.spawn_points)
@@ -217,14 +232,45 @@ class GameEngine:
         self.spawn_points.remove(spawn_position)
 
         if verbose:
-            print(f"Player '{player_id}' added at position ({spawn_position.x}, {spawn_position.y})")
+            print(
+                f"Player '{player_id}' added at position ({spawn_position.x}, {spawn_position.y})"
+            )
 
         return new_player
+
+    def process_action(self, action: object, verbose: bool = False) -> bool:
+        """Process a game action and validate it."""
+
+        # Check if GameAction type
+        if isinstance(action, GameAction):
+
+            # STAY action
+            if isinstance(action, STAY):
+                return True
+
+            # ADD_PLAYER action
+            if isinstance(action, ADD_PLAYER):
+                self.add_player(action.player_id, verbose)
+                return True
+
+        return False
+
+    def tick(self, verbose: bool = False, action: Optional[GameAction] = None) -> bool:
+        """Advance the game state by one tick."""
+
+        is_action_valid = True
+
+        if action is not None:
+            is_action_valid = self.process_action(action, verbose)
+
+        self.current_tick += 1
+
+        return is_action_valid
 
 
 if __name__ == "__main__":
     engine = GameEngine()
 
-    engine.add_player("Enrico")
+    engine.tick(verbose=True, action=ADD_PLAYER(player_id="Enrico"))
 
     print(engine.get_ascii_snapshot())
