@@ -1,7 +1,7 @@
 # hub_server/HubSocketHandler.py
 import socket
 import threading
-from typing import Callable
+from typing import Callable, Literal
 
 from bomberman.common.ServerReference import ServerReference
 from bomberman.hub_server.gossip import messages_pb2 as pb
@@ -11,6 +11,7 @@ BUFFER_SIZE = 65535  # max UDP datagram size
 
 # Type alias per il callback
 MessageHandler = Callable[[pb.GossipMessage, ServerReference], None]
+LoggingFunction = Callable[[str, Literal['Error', 'Gossip', 'Info', 'FailureDetector', 'Error']], None]
 
 
 class HubSocketHandler:
@@ -19,12 +20,14 @@ class HubSocketHandler:
     _on_message: MessageHandler
     _running: bool
     _listener_thread: threading.Thread
+    _logging: LoggingFunction
 
-    def __init__(self, port: int, on_message: MessageHandler):
+    def __init__(self, port: int, on_message: MessageHandler, logging: LoggingFunction):
         self._on_message = on_message
         self._running = False
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._socket.bind(("0.0.0.0", port))
+        self._logging = logging
 
     def start(self):
         self._running = True
@@ -62,13 +65,25 @@ class HubSocketHandler:
         except Exception as e:
             print(f"[HubSocketHandler] Invalid message from {addr}: {e}")
 
-    def send(self, message: GossipMessage, addr: ServerReference):
-        data: bytes = message.SerializeToString()
-        dest = (addr.address, addr.port)
-        self._socket.sendto(data, dest)
-
-    def send_to_many(self, message: GossipMessage, addrs: list[ServerReference]):
-        data = message.SerializeToString()
-        for addr in addrs:
+    def send(self, message: pb.GossipMessage, addr: ServerReference):
+        """Invia un messaggio a un peer"""
+        try:
+            data: bytes = message.SerializeToString()
             dest = (addr.address, addr.port)
             self._socket.sendto(data, dest)
+        except socket.gaierror as e:
+            self._logging(f"DNS resolution failed for {addr.address}: {e}", 'Error')
+        except OSError as e:
+            self._logging(f"Failed to send to {addr.address}:{addr.port}", 'Error')
+
+    def send_to_many(self, message: pb.GossipMessage, addrs: list[ServerReference]):
+        """Invia un messaggio a più peer"""
+        data = message.SerializeToString()
+        for addr in addrs:
+            try:
+                dest = (addr.address, addr.port)
+                self._socket.sendto(data, dest)
+            except socket.gaierror as e:
+                print(f"[HubSocketHandler][Warning] DNS resolution failed for {addr.address}: {e}")
+            except OSError as e:
+                print(f"[HubSocketHandler][Warning] Failed to send to {addr.address}:{addr.port}: {e}")

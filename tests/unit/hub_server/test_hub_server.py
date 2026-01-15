@@ -97,6 +97,11 @@ def mock_env_k8s():
         'HUB_FANOUT': '3'
     }
 
+@pytest.fixture
+def mock_peer_discovery_monitor():
+    with patch('bomberman.hub_server.HubServer.PeerDiscoveryMonitor', autospec=True) as mock:
+        yield mock.return_value
+
 
 @pytest.fixture
 def mock_socket_handler():
@@ -247,7 +252,7 @@ class TestPrintConsole:
 class TestHubServerInitialization:
     """Tests for HubServer initialization."""
 
-    def test_init_manual_mode_hub_0(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
+    def test_init_manual_mode_hub_0(self, mock_env_manual, mock_socket_handler, mock_failure_detector, mock_peer_discovery_monitor):
         """Test initialization in manual mode as hub-0."""
         with patch.dict(os.environ, mock_env_manual):
             server = HubServer(discovery_mode='manual')
@@ -271,7 +276,10 @@ class TestHubServerInitialization:
         """Test initialization in manual mode as hub-1."""
         env = {'HOSTNAME': 'hub-1', 'GOSSIP_PORT': '9001', 'HUB_FANOUT': '3'}
 
-        with patch.dict(os.environ, env):
+        with patch.dict(os.environ, env), \
+            patch('bomberman.hub_server.HubServer.sleep'), \
+            patch('bomberman.hub_server.HubServer.random.randrange', return_value=0):
+
             server = HubServer(discovery_mode='manual')
 
             assert server._hub_index == 1
@@ -631,7 +639,7 @@ class TestMessageForwarding:
 class TestNonceGeneration:
     """Tests for nonce generation."""
 
-    def test_get_next_nonce_starts_at_one(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
+    def test_get_next_nonce_starts_at_one(self, mock_env_manual, mock_socket_handler, mock_failure_detector, mock_peer_discovery_monitor):
         """Test that first nonce is 1."""
         with patch.dict(os.environ, mock_env_manual):
             server = HubServer(discovery_mode='manual')
@@ -640,7 +648,7 @@ class TestNonceGeneration:
 
             assert nonce == 1
 
-    def test_get_next_nonce_increments(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
+    def test_get_next_nonce_increments(self, mock_env_manual, mock_socket_handler, mock_failure_detector, mock_peer_discovery_monitor):
         """Test that nonces increment sequentially."""
         with patch.dict(os.environ, mock_env_manual):
             server = HubServer(discovery_mode='manual')

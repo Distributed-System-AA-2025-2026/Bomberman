@@ -12,6 +12,7 @@ from bomberman.hub_server.HubSocketHandler import HubSocketHandler
 from bomberman.hub_server.gossip import messages_pb2 as pb
 from bomberman.hub_server.FailureDetector import FailureDetector
 from bomberman.hub_server.HubPeer import HubPeer
+from bomberman.hub_server.PeerDiscoveryMonitor import PeerDiscoveryMonitor
 
 
 def get_hub_index(hostname: str) -> int:
@@ -27,7 +28,7 @@ def get_hub_index(hostname: str) -> int:
     del string_index
     return output
 
-def print_console(message: str, category: Literal['Error', 'Gossip', 'Info', 'FailureDetector'] = 'Gossip'):
+def print_console(message: str, category: Literal['Error', 'Gossip', 'Info', 'FailureDetector', 'Error'] = 'Gossip'):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}][HubServer][{category}]: {message}")
 
@@ -39,6 +40,7 @@ class HubServer:
     _discovery_mode: Literal['manual', 'k8s']
     _last_used_nonce: int
     _fanout = 4
+    _peer_discovery_monitor: PeerDiscoveryMonitor
 
 
     def __init__(self, discovery_mode: Literal['manual', 'k8s'] = "manual"):
@@ -55,7 +57,8 @@ class HubServer:
         # Socket handler - solo networking, logica qui
         self._socket_handler = HubSocketHandler(
             port=int(os.environ['GOSSIP_PORT']),
-            on_message=self._on_gossip_message
+            on_message=self._on_gossip_message,
+            logging=print_console
         )
         self._socket_handler.start()
 
@@ -73,15 +76,21 @@ class HubServer:
         )
         self._failure_detector.start()
 
+        self._peer_discovery_monitor = PeerDiscoveryMonitor(
+            state=self._state,
+            my_index=self._hub_index,
+            fanout=self._fanout,
+            on_insufficient_peers=self._discovery_peers
+        )
+        self._peer_discovery_monitor.start()
+
 
         print_console(f"Hub server started with index {self._hub_index}", "Info")
         print_console(f"Hub server started with hostname {self._hostname}", "Info")
         print_console(f"Hub server started with discovery mode {self._discovery_mode}", "Info")
 
-        sleep(5)
-        self._discovery_peers()
-
     def _on_gossip_message(self, message: pb.GossipMessage, sender: ServerReference):
+        sender = self._resolve_server_reference(sender, message.forwarded_by)
         # Traccia l'origine se diverso dal forwarder
         self._ensure_peer_exists(message.forwarded_by)
         if message.forwarded_by != message.origin:
@@ -97,6 +106,11 @@ class HubServer:
 
         # Forward
         self._forward_message(message)
+
+    def _resolve_server_reference(self, reference: ServerReference, peer_index: int) -> ServerReference:
+        if self._discovery_mode == "k8s":
+            return self._calculate_server_reference(peer_index)
+        return reference
 
     def _process_message(self, message: pb.GossipMessage):
         """Handle the specific payload"""
@@ -165,10 +179,15 @@ class HubServer:
         if self._discovery_mode == "manual":
             return ServerReference('127.0.0.1', 9000 + peer_index)
         else:
-            return ServerReference(f"hub-{peer_index}.hub-headless", int(os.environ['GOSSIP_PORT']))
+            service_name = os.environ.get('HUB_SERVICE_NAME', 'hub-service')
+            namespace = os.environ.get('K8S_NAMESPACE', 'bomberman')
+            return ServerReference(
+                f"hub-{peer_index}.{service_name}.{namespace}.svc.cluster.local",
+                int(os.environ['GOSSIP_PORT'])
+            )
 
     def _discovery_peers(self):
-        peer_no = int(os.environ.get('EXPECTED_HUB_COUNT', 1))
+        peer_no = int(os.environ.get('EXPECTED_HUB_COUNT', self._hub_index + 1))
         discovering_index = random.randrange(0, peer_no, 1)
 
         msg = pb.GossipMessage(
@@ -185,8 +204,8 @@ class HubServer:
         if self._discovery_mode == "manual" and self._hub_index != 0:
             self._send_messages_specific_destination(msg, ServerReference('127.0.0.1', 9000 + discovering_index))
         if self._discovery_mode == "k8s":
-            reference = f"hub-{discovering_index}.hub-service.bomberman.svc.cluster.local"
-            self._send_messages_specific_destination(msg, ServerReference(reference, 9000))
+            reference = self._calculate_server_reference(discovering_index)
+            self._send_messages_specific_destination(msg, reference)
 
     def stop(self):
         msg = pb.GossipMessage(
@@ -200,6 +219,7 @@ class HubServer:
             )
         )
         self._send_messages_and_forward(msg)
+        self._peer_discovery_monitor.stop()
         self._socket_handler.stop()
 
     def _send_messages_and_forward(self, message: pb.GossipMessage):
