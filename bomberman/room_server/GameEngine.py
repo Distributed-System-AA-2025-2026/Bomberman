@@ -100,6 +100,12 @@ class REMOVE_PLAYER(GameAction):
     """Action carrying the player ID"""
     player_id: str
 
+@dataclass
+class MOVE_PLAYER(GameAction):
+    """Action carrying the player ID and direction"""
+    player_id: str
+    direction: Direction
+
 class GameEngine:
     """
     Authoritative Server Logic.
@@ -111,11 +117,13 @@ class GameEngine:
     spawn_points: List[Position] = field(default_factory=list)
     current_tick: int
 
-    def __init__(self):
+    def __init__(self, seed: Optional[int] = None):
         self.grid, self.width, self.height, self.spawn_points = self._initialize_grid()
         self.players = []
         self.bombs = []
         self.current_tick = 0
+        if seed is not None:
+            random.seed(seed)
 
     def _initialize_grid(self) -> Tuple[List[List[TileType]], int, int, List[Position]]:
         """Helper to try loading file, catching errors, and falling back to default."""
@@ -198,6 +206,10 @@ class GameEngine:
                 # 1. Start with the static tile symbol
                 symbol = TILE_PROPERTIES[tile]["symbol"]
 
+                # If tile is a spawn point, represent it as empty space for clarity
+                if tile == TileType.SPAWN_POINT:
+                    symbol = TILE_PROPERTIES[TileType.EMPTY]["symbol"]
+
                 # 2. Check if a Player is here (Visual priority over bomb and tile)
                 for player in self.players:
                     if player.position.x == x and player.position.y == y and player.is_alive:
@@ -260,6 +272,44 @@ class GameEngine:
         if verbose:
             print(f"Player '{player_id}' removed from the game.")
 
+    def move_player(self, player_id: str, direction: Direction, verbose: bool = True) -> None:
+        """Move a player in the specified direction if possible."""
+
+        # Find the player
+        player = next((p for p in self.players if p.id == player_id), None)
+        if player is None:
+            raise ValueError(f"Player with ID '{player_id}' does not exist.")
+
+        if not player.is_alive:
+            if verbose:
+                print(f"Player '{player_id}' is not alive and cannot move.")
+            return
+        
+        # Check if direction is an instance of Direction
+        if not isinstance(direction, Direction):
+            raise ValueError(f"Invalid direction provided for player '{player_id}'.")
+
+        # Calculate new position
+        delta_x, delta_y = direction.value
+        new_x = player.position.x + delta_x
+        new_y = player.position.y + delta_y
+
+        # Check bounds
+        if new_x < 0 or new_x >= self.width or new_y < 0 or new_y >= self.height:
+            if verbose:
+                print(f"Player '{player_id}' cannot move out of bounds.")
+            return
+
+        # Check if the tile is walkable
+        target_tile = self.grid[new_y][new_x]
+        if TILE_PROPERTIES[target_tile]["walkable"]:
+            # Move the player
+            player.position = Position(new_x, new_y)
+            if verbose:
+                print(f"Player '{player_id}' moved {direction.name} to ({new_x}, {new_y}).")
+        else:
+            if verbose:
+                print(f"Player '{player_id}' cannot move to non-walkable tile at ({new_x}, {new_y}).")
 
     def process_action(self, action: object, verbose: bool = False) -> bool:
         """Process a game action and validate it."""
@@ -280,6 +330,11 @@ class GameEngine:
                 # REMOVE_PLAYER action
                 if isinstance(action, REMOVE_PLAYER):
                     self.remove_player(action.player_id, verbose)
+                    return True
+                
+                # MOVE_PLAYER action
+                if isinstance(action, MOVE_PLAYER):
+                    self.move_player(action.player_id, action.direction, verbose)
                     return True
                 
             return False  # Invalid action type
@@ -303,11 +358,11 @@ class GameEngine:
 
 
 if __name__ == "__main__":
-    engine = GameEngine()
+    engine = GameEngine(seed=42)
 
     engine.tick(verbose=True, action=ADD_PLAYER(player_id="Enrico"))
-    engine.tick(verbose=True, action=ADD_PLAYER(player_id="Alice"))
-    engine.tick(verbose=True, action=REMOVE_PLAYER(player_id="Enrico"))
-    engine.tick(verbose=True, action=REMOVE_PLAYER(player_id="Enrico"))
+    engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
+    engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
+    engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
 
     print(engine.get_ascii_snapshot())
