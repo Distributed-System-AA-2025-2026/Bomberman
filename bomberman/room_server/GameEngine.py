@@ -1,3 +1,5 @@
+import os
+import sys
 import random
 from dataclasses import dataclass, field
 from enum import Enum
@@ -357,7 +359,8 @@ class GameEngine:
         return is_action_valid
 
 
-if __name__ == "__main__":
+PLAY_GAME = True
+if __name__ == "__main__" and not PLAY_GAME:
     engine = GameEngine(seed=42)
 
     engine.tick(verbose=True, action=ADD_PLAYER(player_id="Enrico"))
@@ -366,3 +369,61 @@ if __name__ == "__main__":
     engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
 
     print(engine.get_ascii_snapshot())
+else:
+    from GameInputHelper import _Getch
+    
+    # Initialize Engine
+    engine = GameEngine(seed=42)
+    
+    # Define Player
+    player_id = "Enrico"
+    
+    # Helper to clear terminal
+    def clear_screen():
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+    # Initial Setup
+    try:
+        engine.tick(verbose=False, action=ADD_PLAYER(player_id=player_id))
+    except ValueError as e:
+        print(f"Startup Error: {e}")
+        sys.exit(1)
+
+    getch = _Getch()
+    message = "Welcome! Controls: [W, A, S, D] to Move, [Q] to Quit."
+
+    while True:
+        clear_screen()
+        
+        # Render Game
+        print(engine.get_ascii_snapshot(verbose=True))
+        print(f"Status: {message}")
+        print("-" * 30)
+
+        # Get Input (Blocking)
+        key = getch().lower() # Convert input to lowercase
+
+        action = None
+        
+        # Map Input to Actions
+        if key == 'w':
+            action = MOVE_PLAYER(player_id=player_id, direction=Direction.UP)
+            message = "Moved UP"
+        elif key == 's':
+            action = MOVE_PLAYER(player_id=player_id, direction=Direction.DOWN)
+            message = "Moved DOWN"
+        elif key == 'a':
+            action = MOVE_PLAYER(player_id=player_id, direction=Direction.LEFT)
+            message = "Moved LEFT"
+        elif key == 'd':
+            action = MOVE_PLAYER(player_id=player_id, direction=Direction.RIGHT)
+            message = "Moved RIGHT"
+        elif key == 'q':
+            print("Quitting game...")
+            break
+        else:
+            action = STAY() # Logic for passing time without moving
+            message = "Waiting..."
+
+        # Process Tick
+        engine.tick(verbose=False, action=action)
