@@ -95,6 +95,10 @@ class ADD_PLAYER(GameAction):
     """Action carrying the player ID"""
     player_id: str
 
+@dataclass
+class REMOVE_PLAYER(GameAction):
+    """Action carrying the player ID"""
+    player_id: str
 
 class GameEngine:
     """
@@ -238,22 +242,52 @@ class GameEngine:
 
         return new_player
 
+    def remove_player(self, player_id: str, verbose: bool = True) -> None:
+        """Remove a player from the game by ID and free up their spawn point."""
+
+        # Check if player is in the game
+        player_to_remove = next((p for p in self.players if p.id == player_id), None)
+        if player_to_remove is None:
+            raise ValueError(f"Player with ID '{player_id}' does not exist.")
+        
+        # Free up the spawn point
+        self.spawn_points.append(player_to_remove.position)
+
+        # Remove the player from the game
+        self.players.remove(player_to_remove)
+
+        # Log the removal
+        if verbose:
+            print(f"Player '{player_id}' removed from the game.")
+
+
     def process_action(self, action: object, verbose: bool = False) -> bool:
         """Process a game action and validate it."""
 
-        # Check if GameAction type
-        if isinstance(action, GameAction):
+        try:
+            # Check if GameAction type
+            if isinstance(action, GameAction):
 
-            # STAY action
-            if isinstance(action, STAY):
-                return True
+                # STAY action
+                if isinstance(action, STAY):
+                    return True
 
-            # ADD_PLAYER action
-            if isinstance(action, ADD_PLAYER):
-                self.add_player(action.player_id, verbose)
-                return True
-
-        return False
+                # ADD_PLAYER action
+                if isinstance(action, ADD_PLAYER):
+                    self.add_player(action.player_id, verbose)
+                    return True
+                
+                # REMOVE_PLAYER action
+                if isinstance(action, REMOVE_PLAYER):
+                    self.remove_player(action.player_id, verbose)
+                    return True
+                
+            return False  # Invalid action type
+    
+        except Exception as e:  
+            if verbose:
+                print(f"Invalid action: {e}")
+            return False
 
     def tick(self, verbose: bool = False, action: Optional[GameAction] = None) -> bool:
         """Advance the game state by one tick."""
@@ -272,5 +306,8 @@ if __name__ == "__main__":
     engine = GameEngine()
 
     engine.tick(verbose=True, action=ADD_PLAYER(player_id="Enrico"))
+    engine.tick(verbose=True, action=ADD_PLAYER(player_id="Alice"))
+    engine.tick(verbose=True, action=REMOVE_PLAYER(player_id="Enrico"))
+    engine.tick(verbose=True, action=REMOVE_PLAYER(player_id="Enrico"))
 
     print(engine.get_ascii_snapshot())
