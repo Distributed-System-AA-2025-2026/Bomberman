@@ -70,8 +70,29 @@ if __name__ == '__main__':
 
     @app.get("/debug/")
     def debug_request(request: Request):
-        hub_server = request.app.state.hub_server
-        return {"content": str(hub_server)}
+        hub_server: HubServer = request.app.state.hub_server
+
+        peers_info = []
+        for peer in hub_server.get_all_peers():
+            peers_info.append({
+                "index": peer.index,
+                "status": peer.status,
+                "heartbeat": peer.heartbeat,
+                "last_seen": peer.last_seen,
+                "address": peer.reference.address,
+                "port": peer.reference.port
+            })
+
+        return {
+            "hostname": hub_server.hostname,
+            "hub_index": hub_server.hub_index,
+            "discovery_mode": hub_server.discovery_mode,
+            "fanout": hub_server.fanout,
+            "last_nonce": hub_server.last_used_nonce,
+            "peers_count": len(peers_info),
+            "alive_peers_count": len([p for p in peers_info if p["status"] == "alive"]),
+            "peers": peers_info
+        }
 
 
     port = int(os.environ.get("PORT", 8000))

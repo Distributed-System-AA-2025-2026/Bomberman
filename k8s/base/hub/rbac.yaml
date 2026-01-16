@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hub-service-account
+  namespace: bomberman
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: room-manager-role
+  namespace: bomberman
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hub-room-manager-binding
+  namespace: bomberman
+subjects:
+  - kind: ServiceAccount
+    name: hub-service-account
+    namespace: bomberman
+roleRef:
+  kind: Role
+  name: room-manager-role
+  apiGroup: rbac.authorization.k8s.io

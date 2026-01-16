@@ -12,6 +12,7 @@ fastapi = ">=0.128.0,<0.129.0"
 uvicorn = ">=0.40.0,<0.41.0"
 protobuf = ">=6.33.2,<7.0.0"
 grpcio-tools = ">=1.76.0,<2.0.0"
+kubernetes = "^35.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"

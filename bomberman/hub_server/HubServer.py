@@ -28,9 +28,11 @@ def get_hub_index(hostname: str) -> int:
     del string_index
     return output
 
+
 def print_console(message: str, category: Literal['Error', 'Gossip', 'Info', 'FailureDetector', 'Error'] = 'Gossip'):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}][HubServer][{category}]: {message}")
+
 
 class HubServer:
     _hostname: str
@@ -41,7 +43,6 @@ class HubServer:
     _last_used_nonce: int
     _fanout = 4
     _peer_discovery_monitor: PeerDiscoveryMonitor
-
 
     def __init__(self, discovery_mode: Literal['manual', 'k8s'] = "manual"):
         self._state = HubState()
@@ -97,7 +98,7 @@ class HubServer:
             self._ensure_peer_exists(message.origin)
 
         is_new = self._state.execute_heartbeat_check(message.origin, message.nonce, message.event_type == pb.PEER_LEAVE)
-        self._state.mark_forward_peer_as_alive(message.forwarded_by, sender) #Marking forwarder as alive
+        self._state.mark_forward_peer_as_alive(message.forwarded_by, sender)  # Marking forwarder as alive
         if not is_new:
             return
 
@@ -130,7 +131,6 @@ class HubServer:
             case pb.ROOM_STARTED:
                 self._handle_room_started(message.room_closed)
 
-
     def _handle_peer_join(self, payload: pb.PeerJoinPayload):
         print_console(f"Peer with index {payload.joining_peer} joined", "Gossip")
         self._ensure_peer_exists(payload.joining_peer)
@@ -144,7 +144,7 @@ class HubServer:
         self._state.mark_peer_explicitly_alive(payload.alive_peer)
 
     def _handle_peer_suspicious(self, payload: pb.PeerSuspiciousPayload):
-        #If I'm suspicious, then I'll declare that i'm alive, else I can ignore the message, because I'll discover that a peer is suspicious by myself
+        # If I'm suspicious, then I'll declare that i'm alive, else I can ignore the message, because I'll discover that a peer is suspicious by myself
         if payload.suspicious_peer == self._hub_index:
             print_console("Someone think that I'm suspicious. Let's declare that I'm alive!", "Gossip")
             self._broadcast_peer_alive()
@@ -156,11 +156,10 @@ class HubServer:
             self._state.remove_peer(payload.dead_peer)
 
     def _handle_room_activated(self, payload: pb.RoomActivatedPayload):
-        pass #TODO
+        pass  # TODO
 
     def _handle_room_started(self, payload: pb.RoomClosedPayload):
-        pass #TODO
-
+        pass  # TODO
 
     def _ensure_peer_exists(self, peer_index: int):
         if self._state.get_peer(peer_index) is None:
@@ -171,7 +170,7 @@ class HubServer:
         alive_peers: list[HubPeer] = self._state.get_all_not_dead_peers(self._hub_index)
         # alive_peers: list[HubPeer] = self._state.get_all_not_dead_peers()
         targets: list[HubPeer] = random.sample(alive_peers, min(self._fanout, len(alive_peers)))
-        references: list[ServerReference] = list(map(lambda e: e.reference , targets))
+        references: list[ServerReference] = list(map(lambda e: e.reference, targets))
         message.forwarded_by = self._hub_index
         self._socket_handler.send_to_many(message, references)
 
@@ -277,3 +276,26 @@ class HubServer:
             )
         )
         self._send_messages_and_forward(msg)
+
+    def get_all_peers(self) -> list[HubPeer]:
+        return self._state.get_all_peers()
+
+    @property
+    def hostname(self) -> str:
+        return self._hostname
+
+    @property
+    def hub_index(self) -> int:
+        return self._hub_index
+
+    @property
+    def discovery_mode(self) -> str:
+        return self._discovery_mode
+
+    @property
+    def fanout(self) -> int:
+        return self._fanout
+
+    @property
+    def last_used_nonce(self) -> int:
+        return self._last_used_nonce

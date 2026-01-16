@@ -20,6 +20,7 @@ spec:
         app: bomberman
         component: hub
     spec:
+      serviceAccountName: hub-service-account
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -32,7 +33,6 @@ spec:
                       values:
                         - hub
                 topologyKey: kubernetes.io/hostname
-
       containers:
         - name: hub
           image: bomberman-hub:latest
