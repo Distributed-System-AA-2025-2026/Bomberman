@@ -255,7 +255,7 @@ class GameEngine:
         if verbose:
             snapshot += f"Grid Size: {self.width}x{self.height}\n"
             snapshot += f"Free Spawn Points: {[(sp.x, sp.y) for sp in self.spawn_points]}\n"
-            snapshot += f"Players: {[p.id for p in self.players]}\n"
+            snapshot += f"Players: {[p.id + ' (' + str(p.position.x) + ',' + str(p.position.y) + ')' for p in self.players]}\n"
             snapshot += f"Bombs: {len(self.bombs)}\n"
             snapshot += f"Current Tick: {self.current_tick} - Time elapsed: {self.current_tick / TICK_RATE:.1f}s\n"
 
@@ -553,7 +553,7 @@ if __name__ == "__main__":
                     message = "Waiting..."
 
                 # Process Tick
-                engine.tick(verbose=False, action=action)
+                engine.tick(verbose=True, action=action)
 
                 # Calculate how much time to sleep to maintain tick rate
                 elapsed_time = time.time() - start_time
