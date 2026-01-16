@@ -142,14 +142,21 @@ class GameEngine:
     bombs: List[Bomb] = field(default_factory=list)
     spawn_points: List[Position] = field(default_factory=list)
     current_tick: int
+    seed: int
 
     def __init__(self, seed: Optional[int] = None):
         self.grid, self.width, self.height, self.spawn_points = self._initialize_grid()
         self.players = []
         self.bombs = []
         self.current_tick = 0
+
         if seed is not None:
             random.seed(seed)
+            self.seed = seed
+        else:
+            self.seed = random.randint(0, 2**32 - 1)
+            random.seed(self.seed)
+
 
     def _initialize_grid(self) -> Tuple[List[List[TileType]], int, int, List[Position]]:
         """Helper to try loading file, catching errors, and falling back to default."""
@@ -477,16 +484,12 @@ class GameEngine:
 
 
 if __name__ == "__main__":
-    PLAY_GAME = True
+    PLAY_GAME = False  # Set to True to play interactively with keyboard input
     
     if not PLAY_GAME:
-        engine = GameEngine(seed=42)
+        engine = GameEngine()
 
         engine.tick(verbose=True, action=ADD_PLAYER(player_id="Enrico"))
-        engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
-        engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
-        engine.tick(verbose=True, action=MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN))
-
         print(engine.get_ascii_snapshot())
     else:
         from GameInputHelper import _Getch, RealTimeInput
