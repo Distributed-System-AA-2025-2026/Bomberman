@@ -76,10 +76,10 @@ class Bomb:
 
     player_id: str
     position: Position
-    timer: int  # Ticks until explosion
+    timer: float  # Ticks until explosion
     range: int = BOMB_RANGE
 
-    def __init__(self, player_id: str, position: Position, timer_seconds: int):
+    def __init__(self, player_id: str, position: Position, timer_seconds: float):
         self.player_id = player_id
         self.position = position
         self.timer = timer_seconds * TICK_RATE  # Convert seconds to ticks
