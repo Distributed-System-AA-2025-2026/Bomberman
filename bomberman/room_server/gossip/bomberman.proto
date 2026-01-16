@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package bomberman;
+
+// Container for any message sent over the network
+message Packet {
+  oneof payload {
+    JoinRequest join_request = 1;
+    ServerResponse server_response = 2;
+  }
+}
+
+// Client -> Server: Request to join
+message JoinRequest {
+  string player_id = 1;
+}
+
+// Server -> Client: Acknowledgment
+message ServerResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+}
