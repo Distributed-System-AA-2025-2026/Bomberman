@@ -20,7 +20,6 @@ class TileType(Enum):
     WALL_BREAKABLE = 2
     SPAWN_POINT = 3
     BOMB = 4
-    EXPLOSION = 5
 
 
 TILE_PROPERTIES = {
@@ -30,7 +29,6 @@ TILE_PROPERTIES = {
     TileType.WALL_BREAKABLE: {"walkable": False, "symbol": "+"},
     TileType.SPAWN_POINT: {"walkable": True, "symbol": "S"},
     TileType.BOMB: {"walkable": True, "symbol": "@"},
-    TileType.EXPLOSION: {"walkable": True, "symbol": "*"},
 }
 
 # Reverse lookup for parsing levels
