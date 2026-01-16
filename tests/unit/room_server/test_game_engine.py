@@ -129,6 +129,25 @@ class TestGameEngine(unittest.TestCase):
 
         self.assertEqual(engine.get_ascii_snapshot(verbose=False), expected_output)
 
+    def test_seed_random_generator(self):
+        """Test that seeding produces consistent random sequences."""
+        seed1 = 42
+        seed2 = 24
+
+        engine1 = GameEngine(seed=seed1)
+        engine2 = GameEngine(seed=seed1)
+
+        # Verify that two engines with the same seed produce the same grid
+        self.assertEqual(engine1.seed, engine2.seed)
+        self.assertEqual(engine1.grid, engine2.grid)
+
+        # Verify that adding a player results in the same spawn point assignment
+        player1 = engine1.add_player("PlayerA")
+        player2 = engine2.add_player("PlayerA")
+        self.assertEqual(player1.position, player2.position)
+        self.assertEqual(engine1.spawn_points, engine2.spawn_points)
+
+
 class TestPlayerActions(unittest.TestCase):
     """Tests for adding, removing, and moving players."""
 
