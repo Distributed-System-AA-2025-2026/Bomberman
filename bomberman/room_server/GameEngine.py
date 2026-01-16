@@ -84,6 +84,7 @@ class Bomb:
         self.position = position
         self.timer = timer_seconds * TICK_RATE  # Convert seconds to ticks
 
+
     def decrease_timer(self):
         """Decrease the bomb timer by one tick"""
         self.timer -= 1
@@ -367,6 +368,7 @@ class GameEngine:
         bomb_position = Position(player.position.x, player.position.y)
         new_bomb = Bomb(player_id=player_id, position=bomb_position, timer_seconds=BOMB_TIMER_SEC)
         self.bombs.append(new_bomb)
+        player.has_bomb = True
 
         if verbose:
             print(f"Player '{player_id}' placed a bomb at ({bomb_position.x}, {bomb_position.y}).")
