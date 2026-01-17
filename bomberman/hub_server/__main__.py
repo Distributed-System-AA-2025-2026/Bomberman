@@ -1,7 +1,9 @@
+import uuid
+
 import uvicorn
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, HTTPException
 
 from bomberman.common.hub_rest_api.requests.MatchMakingRequest import MatchmakingRequest
 from bomberman.common.hub_rest_api.responses.MatchmakingResponse import MatchmakingResponse
@@ -49,22 +51,20 @@ if __name__ == '__main__':
 
 
     @app.post("/matchmaking", response_model=MatchmakingResponse)
-    def matchmaking_request(
-            request: Request,
-            body: MatchmakingRequest = None
-    ) -> MatchmakingResponse:
-        hub_server = request.app.state.hub_server
+    def matchmaking(request: Request) -> MatchmakingResponse:
+        hub_server: HubServer = request.app.state.hub_server
 
-        # hub_server fa qualcosa...
-        # result = hub_server.find_match()
-        # TODO: FARE TEST SULLE API!
+        room = hub_server.get_or_activate_room()
+
+        if room is None:
+            raise HTTPException(status_code=503, detail="No available rooms")
 
         return MatchmakingResponse(
             request_code=200,
-            request_message="Wait for implementation... (it will arrive soon) ",
-            room_token="",
-            room_address="",
-            room_port=8000
+            request_message="Room assigned",
+            room_token=str(uuid.uuid4()),  # TODO: Valutare con enrico, probabilmente e' eliminabile.
+            room_address=hub_server.room_manager.get_room_address(room),
+            room_port=room.external_port
         )
 
 
@@ -95,7 +95,7 @@ if __name__ == '__main__':
         }
 
 
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("HTTP_PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
 
     uvicorn.run(

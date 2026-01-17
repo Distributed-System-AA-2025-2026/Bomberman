@@ -1,10 +1,9 @@
 import os
 import time
 import random
-from time import sleep
 from typing import Literal
 import re
-from datetime import datetime
+from bomberman.hub_server.hublogging import print_console
 
 from bomberman.common.ServerReference import ServerReference
 from bomberman.hub_server.HubState import HubState
@@ -13,6 +12,9 @@ from bomberman.hub_server.gossip import messages_pb2 as pb
 from bomberman.hub_server.FailureDetector import FailureDetector
 from bomberman.hub_server.HubPeer import HubPeer
 from bomberman.hub_server.PeerDiscoveryMonitor import PeerDiscoveryMonitor
+from bomberman.hub_server.room_manager import create_room_manager
+from bomberman.hub_server.Room import Room
+from bomberman.common.RoomState import RoomStatus
 
 
 def get_hub_index(hostname: str) -> int:
@@ -27,11 +29,6 @@ def get_hub_index(hostname: str) -> int:
     output = int(string_index)
     del string_index
     return output
-
-
-def print_console(message: str, category: Literal['Error', 'Gossip', 'Info', 'FailureDetector', 'Error'] = 'Gossip'):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}][HubServer][{category}]: {message}")
 
 
 class HubServer:
@@ -84,6 +81,13 @@ class HubServer:
             on_insufficient_peers=self._discovery_peers
         )
         self._peer_discovery_monitor.start()
+
+        self._room_manager = create_room_manager(
+            discovery_mode=discovery_mode,
+            hub_index=self._hub_index,
+            on_room_activated=self._broadcast_room_activated
+        )
+        self._room_manager.initialize_pool()
 
 
         print_console(f"Hub server started with index {self._hub_index}", "Info")
@@ -156,7 +160,17 @@ class HubServer:
             self._state.remove_peer(payload.dead_peer)
 
     def _handle_room_activated(self, payload: pb.RoomActivatedPayload):
-        pass  # TODO
+        print_console(f"Room {payload.room_id} activated by hub {payload.owner_hub}", "Gossip")
+
+        # Aggiungi al mio state (room remota)
+        room = Room(
+            room_id=payload.room_id,
+            owner_hub_index=payload.owner_hub,
+            status=RoomStatus.ACTIVE,
+            external_port=payload.external_port,
+            internal_service=""  # Non mi serve, è remota
+        )
+        self._state.add_room(room)
 
     def _handle_room_started(self, payload: pb.RoomClosedPayload):
         pass  # TODO
@@ -220,6 +234,7 @@ class HubServer:
         self._send_messages_and_forward(msg)
         self._peer_discovery_monitor.stop()
         self._socket_handler.stop()
+        self._room_manager.cleanup()
 
     def _send_messages_and_forward(self, message: pb.GossipMessage):
         if message.origin != self._hub_index:
@@ -277,6 +292,35 @@ class HubServer:
         )
         self._send_messages_and_forward(msg)
 
+    def _broadcast_room_activated(self, room: Room):
+        """Chiamato da RoomManager quando una room viene attivata"""
+        # Aggiungi al mio state
+        self._state.add_room(room)
+
+        # Broadcast via gossip
+        msg = pb.GossipMessage(
+            nonce=self._get_next_nonce(),
+            origin=self._hub_index,
+            forwarded_by=self._hub_index,
+            timestamp=time.time(),
+            event_type=pb.ROOM_ACTIVATED,
+            room_activated=pb.RoomActivatedPayload(
+                room_id=room.room_id,
+                owner_hub=room.owner_hub_index,
+                external_port=room.external_port,
+                external_address=self._room_manager.external_domain
+            )
+        )
+        self._send_messages_and_forward(msg)
+
+    def get_or_activate_room(self) -> Room | None:
+        """Chiamato dal matchmaking endpoint"""
+        room = self._state.get_active_room()
+        if room:
+            return room
+
+        return self._room_manager.activate_room()
+
     def get_all_peers(self) -> list[HubPeer]:
         return self._state.get_all_peers()
 
@@ -299,3 +343,7 @@ class HubServer:
     @property
     def last_used_nonce(self) -> int:
         return self._last_used_nonce
+
+    @property
+    def room_manager(self):
+        return self._room_manager

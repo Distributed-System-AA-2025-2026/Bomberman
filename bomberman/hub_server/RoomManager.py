@@ -1,15 +1,10 @@
 import os
 from typing import Callable
 from kubernetes import client, config
-from datetime import datetime
 
 from bomberman.hub_server.Room import Room
 from bomberman.common.RoomState import RoomStatus
-
-
-def print_console(message: str, category: str = 'RoomManager'):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}][{category}]: {message}")
+from bomberman.hub_server.hublogging import print_console
 
 
 class RoomManager:

@@ -82,10 +82,16 @@ class PeerDeadPayload(_message.Message):
     def __init__(self, dead_peer: _Optional[int] = ...) -> None: ...
 
 class RoomActivatedPayload(_message.Message):
-    __slots__ = ("room_id",)
+    __slots__ = ("room_id", "owner_hub", "external_port", "external_address")
     ROOM_ID_FIELD_NUMBER: _ClassVar[int]
-    room_id: int
-    def __init__(self, room_id: _Optional[int] = ...) -> None: ...
+    OWNER_HUB_FIELD_NUMBER: _ClassVar[int]
+    EXTERNAL_PORT_FIELD_NUMBER: _ClassVar[int]
+    EXTERNAL_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    room_id: str
+    owner_hub: int
+    external_port: int
+    external_address: str
+    def __init__(self, room_id: _Optional[str] = ..., owner_hub: _Optional[int] = ..., external_port: _Optional[int] = ..., external_address: _Optional[str] = ...) -> None: ...
 
 class RoomClosedPayload(_message.Message):
     __slots__ = ("room_id",)
