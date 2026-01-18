@@ -134,6 +134,7 @@ class GameEngine:
     bombs: List[Bomb] = field(default_factory=list)
     free_spawn_points: List[Position] = field(default_factory=list)
     current_tick: int
+    tick_rate: int = TICK_RATE
     seed: int
     state: GameState
     winner: Optional[str]

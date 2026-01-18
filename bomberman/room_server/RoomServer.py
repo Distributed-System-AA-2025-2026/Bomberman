@@ -8,8 +8,6 @@ import threading
 
 HOST = "0.0.0.0"
 PORT = 5000
-TICK_RATE = 10  # Game ticks per second
-
 MAX_CONNECTIONS = 4  # Maximum number of concurrent player connections
 
 
@@ -35,6 +33,7 @@ class RoomServer:
 
         # Start GameLoop thread
         game_thread = threading.Thread(target=self.game_loop)
+        game_thread.daemon = True  # Kills this thread if the main program exits
         game_thread.start()
 
         try:
@@ -49,12 +48,27 @@ class RoomServer:
                 client_thread = threading.Thread(
                     target=self.handle_client, args=(client_socket, addr)
                 )
+                client_thread.daemon = True  # Kills this thread if the main program exits
                 client_thread.start()
 
         except KeyboardInterrupt:
             print("[*] Shutting down server...")
             self.running = False
+
+            # Close all client connections
+            with self.clients_lock:
+                for client in self.clients:
+                    try:
+                        client.close()
+                    except:
+                        pass
+    
+            # Close server socket
             self.server_socket.close()
+
+            # Exit program
+            import sys
+            sys.exit(0)
 
     def handle_client(self, client_socket, addr):
         player_id = None
@@ -87,7 +101,7 @@ class RoomServer:
                                 success=False,
                                 message="Cannot join, game already in progress.",
                             )
-                            print("[!] Game already in progress.")
+                            print("[!] Game already in progress, rejecting new join request.")
                     except Exception as e:
                         print(f"[!] Failed to add player '{player_id}': {e}")
                         self._send_response(client_socket, success=False, message=str(e))
@@ -103,7 +117,7 @@ class RoomServer:
 
         # Handle client disconnection
         finally:
-            print(f"[-] Client {addr} disconnected.")
+            print(f"[-] Client {addr} disconnected. Player count: {len(self.engine.players)}.")
             with self.clients_lock:
                 if client_socket in self.clients:
                     self.clients.remove(client_socket)
@@ -120,10 +134,11 @@ class RoomServer:
         response_packet = bomberman_pb2.Packet()
         response_packet.server_response.success = success
         response_packet.server_response.message = message
+        response_packet.server_response.tick_rate = self.engine.tick_rate
         send_msg(client_socket, response_packet.SerializeToString())
 
     def game_loop(self):
-        tick_interval = 1.0 / TICK_RATE
+        tick_interval = 1.0 / self.engine.tick_rate
 
         while self.running:
             start_time = time.time()

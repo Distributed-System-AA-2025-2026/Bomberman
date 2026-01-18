@@ -9,13 +9,13 @@ from GameInputHelper import RealTimeInput
 
 HOST = '127.0.0.1'
 PORT = 5000
-TICK_RATE = 10
 
 class GameClient:
     def __init__(self, player_id):
         self.player_id = player_id
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.running = True
+        self.tick_rate = None
 
     def connect(self):
         try:
@@ -40,6 +40,10 @@ class GameClient:
                 if not resp_packet.server_response.success:
                     print(f"[!] Join failed: {resp_packet.server_response.message}")
                     return False
+                
+                # Successful join
+                # Update tick rate from server
+                self.tick_rate = resp_packet.server_response.tick_rate
                 print(f"[*] Joined successfully: {resp_packet.server_response.message}")
                 return True
             return False
@@ -70,16 +74,21 @@ class GameClient:
 
     def render(self, snapshot):
         """Clears terminal and prints the new grid."""
-        # Check OS to run correct clear command
-        os.system("cls" if os.name == "nt" else "clear")
-        
-        print(snapshot.ascii_grid)
+        output_buffer = "\033[H"  # ANSI escape codes to clear screen, first part, prevents flickering
+
+        # Append the grid
+        output_buffer += snapshot.ascii_grid
         
         if snapshot.is_game_over:
-            print("\nGAME OVER")
+            output_buffer += "\nGAME OVER"
             self.running = False
         else:
-            print(f"Player: {self.player_id} | Controls: WASD (Move), E (Bomb), Q (Quit)")
+            output_buffer += f"Player: {self.player_id} | Controls: WASD (Move), E (Bomb), Q (Quit)"
+
+        print(output_buffer)
+        
+
+        output_buffer += "\033[2J"  # ANSI escape codes to clear screen, second part, prevents flickering
 
     def send_action(self, action_type):
         """Helper to create and send an action packet."""
@@ -93,17 +102,19 @@ class GameClient:
             self.running = False
 
     def start(self):
-        # 1Start the Receiver Thread (Background)
+        # Start the Receiver Thread (Background)
         t = threading.Thread(target=self.receive_loop)
         t.daemon = True # Kills this thread if the main program exits
         t.start()
+
+        start_time = time.time()
 
         # Start the Input Loop (Main Thread - Blocking)
         print("Starting input loop...")
         with RealTimeInput() as input_handler:
             while self.running:
                 # Wait a tiny bit for input (1/TICK_RATE seconds)
-                key = input_handler.get_key(timeout=1.0/TICK_RATE)
+                key = input_handler.get_key(timeout=1.0/self.tick_rate)
 
                 if not key:
                     continue
@@ -128,7 +139,9 @@ class GameClient:
                     self.send_action(action)
                 
                 # Sleep briefly to prevent flooding the server if keys are mashing
-                time.sleep(0.02)
+                elapsed_time = time.time() - start_time
+                sleep_duration = max(0, (1.0 / self.tick_rate) - elapsed_time)
+                time.sleep(sleep_duration)
         
         self.sock.close()
 

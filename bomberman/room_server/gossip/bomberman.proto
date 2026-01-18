@@ -19,6 +19,7 @@ message ServerResponse {
   bool success = 1;
   string message = 2;
   string error = 3;
+  int32 tick_rate = 4;
 }
 
 // Client -> Server

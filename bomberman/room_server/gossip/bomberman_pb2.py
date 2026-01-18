@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0f\x62omberman.proto\x12\tbomberman\"\xe1\x01\n\x06Packet\x12.\n\x0cjoin_request\x18\x01 \x01(\x0b\x32\x16.bomberman.JoinRequestH\x00\x12\x34\n\x0fserver_response\x18\x02 \x01(\x0b\x32\x19.bomberman.ServerResponseH\x00\x12.\n\rclient_action\x18\x03 \x01(\x0b\x32\x15.bomberman.GameActionH\x00\x12\x36\n\x0estate_snapshot\x18\x04 \x01(\x0b\x32\x1c.bomberman.GameStateSnapshotH\x00\x42\t\n\x07payload\" \n\x0bJoinRequest\x12\x11\n\tplayer_id\x18\x01 \x01(\t\"A\n\x0eServerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\r\n\x05\x65rror\x18\x03 \x01(\t\"\xc3\x01\n\nGameAction\x12\x35\n\x0b\x61\x63tion_type\x18\x01 \x01(\x0e\x32 .bomberman.GameAction.ActionType\x12\x11\n\tplayer_id\x18\x02 \x01(\t\"k\n\nActionType\x12\x08\n\x04STAY\x10\x00\x12\x0b\n\x07MOVE_UP\x10\x01\x12\r\n\tMOVE_DOWN\x10\x02\x12\r\n\tMOVE_LEFT\x10\x03\x12\x0e\n\nMOVE_RIGHT\x10\x04\x12\x0e\n\nPLACE_BOMB\x10\x05\x12\x08\n\x04QUIT\x10\x06\"=\n\x11GameStateSnapshot\x12\x12\n\nascii_grid\x18\x01 \x01(\t\x12\x14\n\x0cis_game_over\x18\x02 \x01(\x08\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0f\x62omberman.proto\x12\tbomberman\"\xe1\x01\n\x06Packet\x12.\n\x0cjoin_request\x18\x01 \x01(\x0b\x32\x16.bomberman.JoinRequestH\x00\x12\x34\n\x0fserver_response\x18\x02 \x01(\x0b\x32\x19.bomberman.ServerResponseH\x00\x12.\n\rclient_action\x18\x03 \x01(\x0b\x32\x15.bomberman.GameActionH\x00\x12\x36\n\x0estate_snapshot\x18\x04 \x01(\x0b\x32\x1c.bomberman.GameStateSnapshotH\x00\x42\t\n\x07payload\" \n\x0bJoinRequest\x12\x11\n\tplayer_id\x18\x01 \x01(\t\"T\n\x0eServerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\r\n\x05\x65rror\x18\x03 \x01(\t\x12\x11\n\ttick_rate\x18\x04 \x01(\x05\"\xc3\x01\n\nGameAction\x12\x35\n\x0b\x61\x63tion_type\x18\x01 \x01(\x0e\x32 .bomberman.GameAction.ActionType\x12\x11\n\tplayer_id\x18\x02 \x01(\t\"k\n\nActionType\x12\x08\n\x04STAY\x10\x00\x12\x0b\n\x07MOVE_UP\x10\x01\x12\r\n\tMOVE_DOWN\x10\x02\x12\r\n\tMOVE_LEFT\x10\x03\x12\x0e\n\nMOVE_RIGHT\x10\x04\x12\x0e\n\nPLACE_BOMB\x10\x05\x12\x08\n\x04QUIT\x10\x06\"=\n\x11GameStateSnapshot\x12\x12\n\nascii_grid\x18\x01 \x01(\t\x12\x14\n\x0cis_game_over\x18\x02 \x01(\x08\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -36,11 +36,11 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_JOINREQUEST']._serialized_start=258
   _globals['_JOINREQUEST']._serialized_end=290
   _globals['_SERVERRESPONSE']._serialized_start=292
-  _globals['_SERVERRESPONSE']._serialized_end=357
-  _globals['_GAMEACTION']._serialized_start=360
-  _globals['_GAMEACTION']._serialized_end=555
-  _globals['_GAMEACTION_ACTIONTYPE']._serialized_start=448
-  _globals['_GAMEACTION_ACTIONTYPE']._serialized_end=555
-  _globals['_GAMESTATESNAPSHOT']._serialized_start=557
-  _globals['_GAMESTATESNAPSHOT']._serialized_end=618
+  _globals['_SERVERRESPONSE']._serialized_end=376
+  _globals['_GAMEACTION']._serialized_start=379
+  _globals['_GAMEACTION']._serialized_end=574
+  _globals['_GAMEACTION_ACTIONTYPE']._serialized_start=467
+  _globals['_GAMEACTION_ACTIONTYPE']._serialized_end=574
+  _globals['_GAMESTATESNAPSHOT']._serialized_start=576
+  _globals['_GAMESTATESNAPSHOT']._serialized_end=637
 # @@protoc_insertion_point(module_scope)
