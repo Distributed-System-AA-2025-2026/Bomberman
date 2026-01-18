@@ -43,7 +43,7 @@ class HubServer:
 
     def __init__(self, discovery_mode: Literal['manual', 'k8s'] = "manual"):
         self._state = HubState()
-        self._hostname = os.environ["HOSTNAME"]
+        self._hostname = os.environ.get("HOSTNAME", 'hub-0.local')
         self._hub_index = get_hub_index(self._hostname)
         self._discovery_mode = discovery_mode
         self._last_used_nonce = 0

@@ -7,7 +7,7 @@ from bomberman.hub_server.hublogging import print_console
 
 
 class RoomManagerBase(ABC):
-    POOL_SIZE = 3
+    STARTING_POOL_SIZE = 3
 
     _hub_index: int
     _local_rooms: dict[str, Room]
@@ -57,9 +57,6 @@ class RoomManagerBase(ABC):
 
     def get_local_room(self, room_id: str) -> Room | None:
         return self._local_rooms.get(room_id)
-
-    def get_all_local_rooms(self) -> list[Room]:
-        return list(self._local_rooms.values())
 
     def set_room_status(self, room_id: str, status: RoomStatus) -> None:
         if room_id in self._local_rooms:

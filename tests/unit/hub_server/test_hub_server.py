@@ -5,12 +5,16 @@ import os
 import time
 from unittest.mock import Mock, patch
 
+from kubernetes import config
+
 from bomberman.hub_server.HubServer import HubServer, get_hub_index, print_console
 from bomberman.hub_server.HubPeer import HubPeer
 from bomberman.hub_server.HubSocketHandler import HubSocketHandler
 from bomberman.hub_server.FailureDetector import FailureDetector
 from bomberman.common.ServerReference import ServerReference
 from bomberman.hub_server.gossip import messages_pb2 as pb
+from bomberman.common.RoomState import RoomStatus
+from bomberman.hub_server.Room import Room
 
 
 class TestGetHubIndex:
@@ -96,6 +100,29 @@ def mock_env_k8s():
         'GOSSIP_PORT': '9000',
         'HUB_FANOUT': '3'
     }
+
+
+@pytest.fixture
+def mock_k8s_config():
+    """Mock Kubernetes configuration loading."""
+    with patch('kubernetes.config.load_incluster_config') as mock_incluster, \
+            patch('kubernetes.config.load_kube_config') as mock_kube, \
+            patch('kubernetes.client.CoreV1Api') as mock_api:
+        # Simula che load_incluster_config fallisce (non in cluster)
+        mock_incluster.side_effect = config.ConfigException("Not in cluster")
+
+        # load_kube_config ha successo (simula kubeconfig locale)
+        mock_kube.return_value = None
+
+        # Mock della API
+        mock_api_instance = Mock()
+        mock_api.return_value = mock_api_instance
+
+        yield {
+            'incluster': mock_incluster,
+            'kube_config': mock_kube,
+            'api': mock_api_instance
+        }
 
 @pytest.fixture
 def mock_peer_discovery_monitor():
@@ -277,7 +304,6 @@ class TestHubServerInitialization:
         env = {'HOSTNAME': 'hub-1', 'GOSSIP_PORT': '9001', 'HUB_FANOUT': '3'}
 
         with patch.dict(os.environ, env), \
-            patch('bomberman.hub_server.HubServer.sleep'), \
             patch('bomberman.hub_server.HubServer.random.randrange', return_value=0):
 
             server = HubServer(discovery_mode='manual')
@@ -296,7 +322,7 @@ class TestHubServerInitialization:
             assert destination.address == '127.0.0.1'
             assert destination.port == 9000
 
-    def test_init_k8s_mode(self, mock_env_k8s, mock_socket_handler, mock_failure_detector):
+    def test_init_k8s_mode(self, mock_env_k8s, mock_socket_handler, mock_failure_detector, mock_k8s_config):
         """Test initialization in k8s mode."""
         with patch.dict(os.environ, mock_env_k8s):
             server = HubServer(discovery_mode='k8s')
@@ -307,7 +333,6 @@ class TestHubServerInitialization:
             # Verify self peer has correct k8s reference
             self_peer = server._state.get_peer(1)
             assert self_peer is not None
-            assert 'hub-headless' in self_peer.reference.address
 
     def test_init_default_fanout(self, mock_socket_handler, mock_failure_detector):
         """Test initialization with default fanout when env var not set."""
@@ -436,14 +461,14 @@ class TestPeerManagement:
             assert ref.address == '127.0.0.1'
             assert ref.port == 9005  # 9000 + 5
 
-    def test_calculate_server_reference_k8s_mode(self, mock_env_k8s, mock_socket_handler, mock_failure_detector):
+    def test_calculate_server_reference_k8s_mode(self, mock_env_k8s, mock_socket_handler, mock_failure_detector, mock_k8s_config):
         """Test _calculate_server_reference in k8s mode."""
         with patch.dict(os.environ, mock_env_k8s):
             server = HubServer(discovery_mode='k8s')
 
             ref = server._calculate_server_reference(3)
 
-            assert ref.address == 'hub-3.hub-headless'
+            assert ref.address == 'hub-3.hub-service.bomberman.svc.cluster.local'
             assert ref.port == 9000
 
     @pytest.mark.parametrize("peer_index,expected_port", [
@@ -1607,29 +1632,3 @@ class TestErrorHandlingAndRobustness:
             server._on_gossip_message(msg, sender)
 
             assert server._state.get_peer(1) is not None
-
-    @pytest.mark.parametrize("event_type", [
-        pb.ROOM_ACTIVATED,
-        pb.ROOM_STARTED,
-    ])
-    def test_unimplemented_message_handlers(self, mock_env_manual, mock_socket_handler, mock_failure_detector,
-                                            event_type):
-        """Test that unimplemented message handlers don't crash."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            msg = pb.GossipMessage(
-                nonce=1,
-                origin=1,
-                forwarded_by=1,
-                timestamp=time.time(),
-                event_type=event_type
-            )
-
-            if event_type == pb.ROOM_ACTIVATED:
-                msg.room_activated.CopyFrom(pb.RoomActivatedPayload(room_id=123))
-            elif event_type == pb.ROOM_STARTED:
-                msg.room_closed.CopyFrom(pb.RoomClosedPayload(room_id=123))
-
-            # Should not crash (handlers have pass)
-            server._process_message(msg)

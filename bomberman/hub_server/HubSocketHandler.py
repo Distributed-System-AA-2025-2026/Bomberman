@@ -1,11 +1,10 @@
-# hub_server/HubSocketHandler.py
 import socket
 import threading
 from typing import Callable, Literal
 
 from bomberman.common.ServerReference import ServerReference
 from bomberman.hub_server.gossip import messages_pb2 as pb
-from bomberman.hub_server.gossip.messages_pb2 import GossipMessage
+from bomberman.hub_server.hublogging import print_console
 
 BUFFER_SIZE = 65535  # max UDP datagram size
 
@@ -22,7 +21,7 @@ class HubSocketHandler:
     _listener_thread: threading.Thread
     _logging: LoggingFunction
 
-    def __init__(self, port: int, on_message: MessageHandler, logging: LoggingFunction):
+    def __init__(self, port: int, on_message: MessageHandler, logging: LoggingFunction = print_console):
         self._on_message = on_message
         self._running = False
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

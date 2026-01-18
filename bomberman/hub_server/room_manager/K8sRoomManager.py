@@ -8,11 +8,12 @@ from bomberman.hub_server.room_manager.RoomManagerBase import RoomManagerBase, p
 
 
 class K8sRoomManager(RoomManagerBase):
-    POOL_SIZE = 1  # Una room per hub
+    STARTING_POOL_SIZE = 1  # Una room per hub
 
     _k8s_core: client.CoreV1Api
     _external_address: str
     _namespace: str
+    _last_used_room_index: int
 
     def __init__(
             self,
@@ -34,26 +35,18 @@ class K8sRoomManager(RoomManagerBase):
 
         self._k8s_core = client.CoreV1Api()
 
+    def craft_room_id(self, room_index: int) -> str:
+        return f"hub{self._hub_index}-{room_index}"
+
     def initialize_pool(self) -> None:
-        print_console(f"Initializing K8s room pool with {self.POOL_SIZE} room(s)")
+        print_console(f"Initializing K8s room pool with {self.STARTING_POOL_SIZE} room(s)")
+        for i in range(self.STARTING_POOL_SIZE):
+            self._create_and_register_room(i)
+        self._last_used_room_index = max(self.STARTING_POOL_SIZE - 1, 0)
 
-        for i in range(self.POOL_SIZE):
-            room_id = f"hub{self._hub_index}-{i}"
-
-            node_port = self._create_room(room_id)
-
-            if node_port is None:
-                continue
-
-            room = Room(
-                room_id=room_id,
-                owner_hub_index=self._hub_index,
-                status=RoomStatus.DORMANT,
-                external_port=node_port,
-                internal_service=f"room-{room_id}-svc.{self._namespace}.svc.cluster.local"
-            )
-            self._local_rooms[room_id] = room
-            print_console(f"Created dormant room {room_id} on NodePort {node_port}")
+    def _get_next_room_index(self) -> int:
+        self._last_used_room_index = self._last_used_room_index + 1
+        return self._last_used_room_index
 
     def _create_room(self, room_id: str) -> int | None:
         try:
@@ -79,7 +72,7 @@ class K8sRoomManager(RoomManagerBase):
                 containers=[
                     client.V1Container(
                         name="room",
-                        image="httpd:2.4",  # TODO: tua immagine room
+                        image="httpd:2.4",  # TODO: Room image di enrico
                         ports=[client.V1ContainerPort(container_port=80)],
                         env=[
                             client.V1EnvVar(name="ROOM_ID", value=room_id),
@@ -129,3 +122,34 @@ class K8sRoomManager(RoomManagerBase):
 
     def get_room_address(self, room: Room) -> str:
         return self._external_address
+
+    def _create_and_register_room(self, room_index: int) -> Room | None:
+        room_id = self.craft_room_id(room_index)
+
+        node_port = self._create_room(room_id)
+        if node_port is None:
+            return None
+
+        room = Room(
+            room_id=room_id,
+            owner_hub_index=self._hub_index,
+            status=RoomStatus.DORMANT,
+            external_port=node_port,
+            internal_service=f"room-{room_id}-svc.{self._namespace}.svc.cluster.local"
+        )
+        self._local_rooms[room_id] = room
+        print_console(f"Created dormant room {room_id} on NodePort {node_port}")
+
+        return room
+
+    def activate_room(self) -> Room | None:
+        room = super().activate_room()
+        if room is not None:
+            return room
+
+        # Crea e registra nuova room
+        new_room = self._create_and_register_room(self._get_next_room_index())
+        if new_room is None:
+            return None
+
+        return super().activate_room()

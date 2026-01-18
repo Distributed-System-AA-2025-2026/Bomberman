@@ -20,9 +20,9 @@ class LocalRoomManager(RoomManagerBase):
         super().__init__(hub_index, on_room_activated)
 
     def initialize_pool(self) -> None:
-        print_console(f"Initializing LOCAL room pool with {self.POOL_SIZE} rooms (simulated)", "RoomHandling")
+        print_console(f"Initializing LOCAL room pool with {self.STARTING_POOL_SIZE} rooms (simulated)", "RoomHandling")
 
-        for i in range(self.POOL_SIZE):
+        for i in range(self.STARTING_POOL_SIZE):
             room_id = f"hub{self._hub_index}-{i}"
             port = self.ROOM_PORT_START + (self._hub_index * 100) + i
 
