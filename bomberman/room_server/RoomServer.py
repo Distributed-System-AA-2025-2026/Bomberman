@@ -117,7 +117,6 @@ class RoomServer:
 
         # Handle client disconnection
         finally:
-            print(f"[-] Client {addr} disconnected. Player count: {len(self.engine.players)}.")
             with self.clients_lock:
                 if client_socket in self.clients:
                     self.clients.remove(client_socket)
@@ -129,6 +128,8 @@ class RoomServer:
                     self.engine.remove_player(player_id, verbose=True)
                 except:
                     pass
+                
+            print(f"[-] Client {addr} disconnected. Player count: {len(self.engine.players)}.")
 
     def _send_response(self, client_socket, success: bool, message: str = ""):
         response_packet = bomberman_pb2.Packet()

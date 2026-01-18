@@ -17,6 +17,10 @@ class GameClient:
         self.running = True
         self.tick_rate = None
 
+        # Force Windows terminal to interpret ANSI escape codes
+        if os.name == 'nt':
+            os.system('')  # Enables ANSI escape codes in Windows terminal
+
     def connect(self):
         try:
             self.sock.connect((HOST, PORT))
@@ -73,22 +77,26 @@ class GameClient:
                 print(f"[!] Receive error: {e}")
 
     def render(self, snapshot):
-        """Clears terminal and prints the new grid."""
-        output_buffer = "\033[H"  # ANSI escape codes to clear screen, first part, prevents flickering
+            """Clears terminal and prints the new grid."""
+            output_buffer = "\033[H" # ANSI escape code to move cursor to top-left, also hide cursor
 
-        # Append the grid
-        output_buffer += snapshot.ascii_grid
-        
-        if snapshot.is_game_over:
-            output_buffer += "\nGAME OVER"
-            self.running = False
-        else:
-            output_buffer += f"Player: {self.player_id} | Controls: WASD (Move), E (Bomb), Q (Quit)"
+            output_buffer += snapshot.ascii_grid
 
-        print(output_buffer)
-        
+            # Foreach \n in ascii_grid, append \033[K to clear to end of line
+            output_buffer = output_buffer.replace("\n", "\n\033[K")
+            
+            if snapshot.is_game_over:
+                output_buffer += "\nGAME OVER"
+                self.running = False
+            else:
+                output_buffer += f"Player: {self.player_id} | Controls: WASD (Move), E (Bomb), Q (Quit)\n"
 
-        output_buffer += "\033[2J"  # ANSI escape codes to clear screen, second part, prevents flickering
+            output_buffer += "\033[J"  # ANSI escape codes to clear screen
+
+
+            sys.stdout.write(output_buffer)
+            sys.stdout.flush()
+
 
     def send_action(self, action_type):
         """Helper to create and send an action packet."""
@@ -109,8 +117,12 @@ class GameClient:
 
         start_time = time.time()
 
+        if os.name == 'nt':
+            os.system('cls')
+        else:
+            os.system('clear')
+
         # Start the Input Loop (Main Thread - Blocking)
-        print("Starting input loop...")
         with RealTimeInput() as input_handler:
             while self.running:
                 # Wait a tiny bit for input (1/TICK_RATE seconds)

@@ -11,6 +11,7 @@ TICK_RATE = 10  # Ticks per second, so 1 tick = 0.1 seconds
 BOMB_TIMER_SEC = 2.0  # Seconds will be translated to ticks
 EXPLOSION_DURATION_SEC = 1.0  # Seconds will be translated to ticks
 BOMB_RANGE = 2  # Tiles
+MAX_TIME_TO_WAIT_FOR_PLAYERS = 30  # Seconds
 
 
 class GameState(Enum):
@@ -109,6 +110,7 @@ class STAY(GameAction):
 
     pass
 
+
 @dataclass
 class MOVE_PLAYER(GameAction):
     """Action carrying the player ID and direction"""
@@ -148,6 +150,8 @@ class GameEngine:
         self.winner = None
 
         self.total_spawn_points_slots = len(self.free_spawn_points)
+
+        self.time_until_start = MAX_TIME_TO_WAIT_FOR_PLAYERS
 
         if seed is not None:
             random.seed(seed)
@@ -264,6 +268,19 @@ class GameEngine:
             snapshot += f"Bombs: {len(self.bombs)}\n"
             snapshot += f"Current Tick: {self.current_tick} - Time elapsed: {self.current_tick / TICK_RATE:.1f}s\n"
 
+        # Print game state info
+        snapshot += f"Game State: {self.state.name}\n"
+        if self.state == GameState.WAITING_FOR_PLAYERS:
+            if len(self.players) >= 2:
+                snapshot += f"Starting in: {self.time_until_start:.1f}s\n"
+            else:
+                snapshot += f"Waiting for more {len(self.free_spawn_points)} players to join...\n"
+        elif self.state == GameState.GAME_OVER:
+            if self.winner:
+                snapshot += f"Winner: Player '{self.winner}'\n"
+            else:
+                snapshot += "Game ended in a draw.\n"
+
         return snapshot
 
     def add_player(self, player_id: str, verbose: bool = True) -> Player:
@@ -271,7 +288,9 @@ class GameEngine:
 
         # Check game state
         if self.state != GameState.WAITING_FOR_PLAYERS:
-            raise ValueError("Cannot add players when the game is not in WAITING_FOR_PLAYERS state.")
+            raise ValueError(
+                "Cannot add players when the game is not in WAITING_FOR_PLAYERS state."
+            )
 
         # Check if player is already in the game
         if any(p.id == player_id for p in self.players):
@@ -310,7 +329,9 @@ class GameEngine:
 
         # Check game state
         if self.state != GameState.WAITING_FOR_PLAYERS:
-            raise ValueError("Cannot remove players when the game is not in WAITING_FOR_PLAYERS state.")
+            raise ValueError(
+                "Cannot remove players when the game is not in WAITING_FOR_PLAYERS state."
+            )
 
         # Check if player is in the game
         player_to_remove = next((p for p in self.players if p.id == player_id), None)
@@ -479,18 +500,37 @@ class GameEngine:
         alive_players = [p for p in self.players if p.is_alive]
 
         if len(alive_players) <= 1:
-            self.state = GameState.GAME_OVER # Transition to GAME_OVER state when 0 or 1 players are alive
-            if len(alive_players) == 1: # One winner
+            self.state = (
+                GameState.GAME_OVER
+            )  # Transition to GAME_OVER state when 0 or 1 players are alive
+            if len(alive_players) == 1:  # One winner
                 self.winner = alive_players[0].id
                 if verbose:
                     print(f"Game Over! Winner is Player '{self.winner}'.")
             else:
-                self.winner = None # Draw
+                self.winner = None  # Draw
                 if verbose:
                     print("Game Over! No winners.")
 
     def tick(self, verbose: bool = False, actions: List[GameAction] = []) -> bool:
         """Advance the game state by one tick."""
+
+        if self.state == GameState.WAITING_FOR_PLAYERS:
+            # Only count down if we have at least 2 players
+            if len(self.players) >= 2:
+                self.time_until_start -= 1.0 / self.tick_rate
+
+                if self.time_until_start <= 0:
+                    self.start_game()
+            else:
+                # Reset timer if player count drops below 2
+                if self.time_until_start != MAX_TIME_TO_WAIT_FOR_PLAYERS:
+                    if verbose:
+                        print("Not enough players. Timer reset.")
+                    self.time_until_start = MAX_TIME_TO_WAIT_FOR_PLAYERS
+
+            # We return True so the Server Loop keeps running, but we skip the rest of the tick processing logic
+            return True
 
         # Check if game is in progress
         if self.state != GameState.IN_PROGRESS:
