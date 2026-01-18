@@ -9,7 +9,6 @@ from bomberman.room_server.GameEngine import (
     Position,
     Player,
     Direction,
-    ADD_PLAYER,
     MOVE_PLAYER,
     PLACE_BOMB,
 )
@@ -145,7 +144,7 @@ class TestGameEngine(unittest.TestCase):
         player1 = engine1.add_player("PlayerA")
         player2 = engine2.add_player("PlayerA")
         self.assertEqual(player1.position, player2.position)
-        self.assertEqual(engine1.spawn_points, engine2.spawn_points)
+        self.assertEqual(engine1.free_spawn_points, engine2.free_spawn_points)
 
 
 class TestPlayerActions(unittest.TestCase):
@@ -186,13 +185,13 @@ class TestPlayerActions(unittest.TestCase):
     def test_remove_player(self):
         """Test removing a player frees up the spawn point."""
         p1 = self.engine.add_player("Enrico")
-        initial_spawn_count = len(self.engine.spawn_points)
+        initial_spawn_count = len(self.engine.free_spawn_points)
 
         self.engine.remove_player("Enrico")
 
         self.assertEqual(len(self.engine.players), 0)
-        self.assertEqual(len(self.engine.spawn_points), initial_spawn_count + 1)
-        self.assertIn(p1.position, self.engine.spawn_points)
+        self.assertEqual(len(self.engine.free_spawn_points), initial_spawn_count + 1)
+        self.assertIn(p1.position, self.engine.free_spawn_points)
 
     def test_movement_valid(self):
         """Test moving into an empty space."""
