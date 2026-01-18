@@ -133,7 +133,9 @@ class HubServer:
             case pb.ROOM_ACTIVATED:
                 self._handle_room_activated(message.room_activated)
             case pb.ROOM_STARTED:
-                self._handle_room_started(message.room_closed)
+                self._handle_room_started(message.room_started)
+            case pb.ROOM_CLOSED:
+                self._handle_room_closed(message.room_closed)
 
     def _handle_peer_join(self, payload: pb.PeerJoinPayload):
         print_console(f"Peer with index {payload.joining_peer} joined", "Gossip")
@@ -172,8 +174,41 @@ class HubServer:
         )
         self._state.add_room(room)
 
-    def _handle_room_started(self, payload: pb.RoomClosedPayload):
-        pass  # TODO
+    def _handle_room_started(self, payload: pb.RoomStartedPayload):
+        """Room ha iniziato la partita, non più joinable"""
+        print_console(f"Room {payload.room_id} started playing", "Gossip")
+        self._state.set_room_status(payload.room_id, RoomStatus.PLAYING)
+
+    def _handle_room_closed(self, payload: pb.RoomClosedPayload):
+        """Partita finita, room torna disponibile"""
+        print_console(f"Room {payload.room_id} closed.", "Gossip")
+        self._state.set_room_status(payload.room_id, RoomStatus.DORMANT)
+
+    def broadcast_room_started(self, room_id: str):
+        """Chiamato dalla room quando inizia la partita"""
+        msg = pb.GossipMessage(
+            nonce=self._get_next_nonce(),
+            origin=self._hub_index,
+            forwarded_by=self._hub_index,
+            timestamp=time.time(),
+            event_type=pb.ROOM_STARTED,
+            room_started=pb.RoomStartedPayload(room_id=room_id)
+        )
+        self._state.set_room_status(room_id, RoomStatus.PLAYING)
+        self._send_messages_and_forward(msg)
+
+    def broadcast_room_closed(self, room_id: str):
+        """Chiamato dalla room quando finisce la partita"""
+        msg = pb.GossipMessage(
+            nonce=self._get_next_nonce(),
+            origin=self._hub_index,
+            forwarded_by=self._hub_index,
+            timestamp=time.time(),
+            event_type=pb.ROOM_CLOSED,
+            room_closed=pb.RoomClosedPayload(room_id=room_id)
+        )
+        self._state.set_room_status(room_id, RoomStatus.DORMANT)
+        self._send_messages_and_forward(msg)
 
     def _ensure_peer_exists(self, peer_index: int):
         if self._state.get_peer(peer_index) is None:

@@ -20,7 +20,7 @@ spec:
         app: bomberman
         component: hub
     spec:
-      serviceAccountName: hub-service-account
+      # serviceAccountName: hub-service-account
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

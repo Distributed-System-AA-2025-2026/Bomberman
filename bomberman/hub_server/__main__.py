@@ -5,10 +5,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response, HTTPException
 
-from bomberman.common.hub_rest_api.requests.MatchMakingRequest import MatchmakingRequest
 from bomberman.common.hub_rest_api.responses.MatchmakingResponse import MatchmakingResponse
+from bomberman.common.hub_rest_api.responses.DefaultResponse import DefaultResponse
 from bomberman.hub_server.HubServer import HubServer
 import os
+
+
 
 if __name__ == '__main__':
 
@@ -62,9 +64,32 @@ if __name__ == '__main__':
         return MatchmakingResponse(
             request_code=200,
             request_message="Room assigned",
-            room_token=str(uuid.uuid4()),  # TODO: Valutare con enrico, probabilmente e' eliminabile.
+            room_token=str(uuid.uuid4()),
             room_address=hub_server.room_manager.get_room_address(room),
-            room_port=room.external_port
+            room_port=room.external_port,
+            room_id=room.room_id
+        )
+
+
+    @app.post("/room/{room_id}/start")
+    def room_started(room_id: str, request: Request):
+        hub_server = request.app.state.hub_server
+        hub_server.broadcast_room_started(room_id)
+        return DefaultResponse(
+            status_code=200,
+            response_code=200,
+            response_message="Ok."
+        )
+
+
+    @app.post("/room/{room_id}/close")
+    def room_closed(room_id: str, request: Request):
+        hub_server = request.app.state.hub_server
+        hub_server.broadcast_room_closed(room_id)
+        return DefaultResponse(
+            status_code=200,
+            response_code=200,
+            response_message="Ok."
         )
 
 

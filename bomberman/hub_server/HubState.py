@@ -5,6 +5,7 @@ from typing import Literal
 from bomberman.hub_server.HubPeer import HubPeer
 from bomberman.common.ServerReference import ServerReference
 from bomberman.hub_server.Room import Room
+from bomberman.common.RoomState import RoomStatus
 
 
 class HubState:
@@ -152,3 +153,9 @@ class HubState:
     def get_all_rooms(self) -> list[Room]:
         with self._lock:
             return list(self._known_rooms.values())
+
+    def set_room_status(self, room_id: str, status: RoomStatus) -> None:
+        with self._lock:
+            room = self._known_rooms.get(room_id)
+            if room is not None:
+                room.status = status

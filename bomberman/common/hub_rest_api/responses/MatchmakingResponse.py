@@ -6,3 +6,4 @@ class MatchmakingResponse(BaseModel):
     room_token: str
     room_address: str
     room_port: int
+    room_id: str
