@@ -145,15 +145,15 @@ class RoomServer:
             start_time = time.time()
 
             # Process actions from queue
-            actions_to_process = []
+            actions_to_process = {} # Set instead of list for unique player actions per tick, deduplication
             while not self.action_queue.empty():
                 player_id, proto_action = self.action_queue.get()
                 engine_action = self._map_proto_to_engine(proto_action)
                 if engine_action:
-                    actions_to_process.append(engine_action)
+                    actions_to_process[player_id] = engine_action # Store latest action per player
 
             # Tick the game engine with all collected actions
-            self.engine.tick(verbose=False, actions=actions_to_process)
+            self.engine.tick(verbose=False, actions=list(actions_to_process.values()))
 
             # Broadcast game state to all clients
             self.broadcast_game()
