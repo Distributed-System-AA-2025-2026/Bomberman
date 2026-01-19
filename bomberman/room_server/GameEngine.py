@@ -11,7 +11,7 @@ TICK_RATE = 10  # Ticks per second, so 1 tick = 0.1 seconds
 BOMB_TIMER_SEC = 2.0  # Seconds will be translated to ticks
 EXPLOSION_DURATION_SEC = 1.0  # Seconds will be translated to ticks
 BOMB_RANGE = 2  # Tiles
-MAX_TIME_TO_WAIT_FOR_PLAYERS = 30  # Seconds
+MAX_TIME_TO_WAIT_FOR_PLAYERS_DURING_WAITING_STATE = 30  # Seconds
 
 
 class GameState(Enum):
@@ -151,7 +151,7 @@ class GameEngine:
 
         self.total_spawn_points_slots = len(self.free_spawn_points)
 
-        self.time_until_start = MAX_TIME_TO_WAIT_FOR_PLAYERS
+        self.time_until_start = MAX_TIME_TO_WAIT_FOR_PLAYERS_DURING_WAITING_STATE
 
         if seed is not None:
             random.seed(seed)
@@ -524,10 +524,10 @@ class GameEngine:
                     self.start_game()
             else:
                 # Reset timer if player count drops below 2
-                if self.time_until_start != MAX_TIME_TO_WAIT_FOR_PLAYERS:
+                if self.time_until_start != MAX_TIME_TO_WAIT_FOR_PLAYERS_DURING_WAITING_STATE:
                     if verbose:
                         print("Not enough players. Timer reset.")
-                    self.time_until_start = MAX_TIME_TO_WAIT_FOR_PLAYERS
+                    self.time_until_start = MAX_TIME_TO_WAIT_FOR_PLAYERS_DURING_WAITING_STATE
 
             # We return True so the Server Loop keeps running, but we skip the rest of the tick processing logic
             return True
