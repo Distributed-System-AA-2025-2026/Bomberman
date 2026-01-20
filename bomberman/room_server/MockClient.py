@@ -6,24 +6,35 @@ import time
 from gossip import bomberman_pb2
 from NetworkUtils import send_msg, recv_msg
 from GameInputHelper import RealTimeInput
+from GameStatePersistence import SERVER_RECONNECTION_TIMEOUT
 
 HOST = '127.0.0.1'
 PORT = 5000
+RECONNECT_INTERVAL = 2  # Seconds between reconnection attempts
+
 
 class GameClient:
     def __init__(self, player_id):
         self.player_id = player_id
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock = None
         self.running = True
-        self.tick_rate = None
+        self.tick_rate = 10  # Default, will be updated by server on connection
+        self.is_connected = False
+        self.reconnection_attempts = 0
+        self.max_reconnection_time = SERVER_RECONNECTION_TIMEOUT
+        self.reconnection_start_time = None
 
         # Force Windows terminal to interpret ANSI escape codes
         if os.name == 'nt':
             os.system('')  # Enables ANSI escape codes in Windows terminal
 
     def connect(self):
+        """Attempt to connect to the server."""
         try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # Create IPv4 TCP socket
+            self.sock.settimeout(5.0)  # 5 second timeout for connection
             self.sock.connect((HOST, PORT))
+            self.sock.settimeout(None)  # Remove timeout after connection
             print(f"[*] Connected to {HOST}:{PORT}")
             
             # Send Join Request
@@ -31,7 +42,7 @@ class GameClient:
             packet.join_request.player_id = self.player_id
             send_msg(self.sock, packet.SerializeToString())
 
-            # Wait for Server Acceptance/Rejection
+            # Wait for Server Response
             data = recv_msg(self.sock)
             if not data:
                 print("[!] Server closed connection during handshake.")
@@ -45,117 +56,191 @@ class GameClient:
                     print(f"[!] Join failed: {resp_packet.server_response.message}")
                     return False
                 
-                # Successful join
-                # Update tick rate from server
+                # Successful join/rejoin
                 self.tick_rate = resp_packet.server_response.tick_rate
-                print(f"[*] Joined successfully: {resp_packet.server_response.message}")
+                print(f"[*] {resp_packet.server_response.message}")
+                self.is_connected = True
+                self.reconnection_attempts = 0
+                self.reconnection_start_time = None
+                
                 return True
             return False
-        except Exception as e:
-            print(f"[!] Connection error: {e}")
+            
+        except (socket.timeout, ConnectionRefusedError, OSError) as e:
+            print(f"[!] Connection failed: {e}")
             return False
 
+    def attempt_reconnection(self) -> bool:
+        """Try to reconnect to the server within the timeout window. Returns True on success, False on timeout."""
+        if self.reconnection_start_time is None:
+            self.reconnection_start_time = time.time()
+        
+        elapsed = time.time() - self.reconnection_start_time
+        
+        # Check if timeout exceeded
+        if elapsed > self.max_reconnection_time:
+            print(f"\n[!] Reconnection timeout ({self.max_reconnection_time}s) exceeded.")
+            print("[!] Server appears to be permanently down. Exiting...")
+            self.running = False
+            return False
+        
+        remaining = self.max_reconnection_time - elapsed
+        self.reconnection_attempts += 1
+        print(f"[*] Reconnection attempt #{self.reconnection_attempts} ({remaining:.1f}s remaining)...")
+        
+        if self.connect():
+            print("[*] Successfully reconnected!")
+            return True
+        
+        return False
+
     def receive_loop(self):
-        """Thread that listens for updates from the server and prints them."""
+        """Thread that listens for updates from the server."""
+        last_reconnect_attempt = 0
+        
         try:
             while self.running:
-                data = recv_msg(self.sock)
-                if not data:
-                    print("\n[!] Server disconnected.")
-                    self.running = False
-                    # Force exit to kill the input loop
-                    os._exit(0)
+                if not self.is_connected:
+                    # Try to reconnect periodically
+                    current_time = time.time()
+                    if current_time - last_reconnect_attempt >= RECONNECT_INTERVAL:
+                        last_reconnect_attempt = current_time
+                        if self.attempt_reconnection():
+                            continue
+                    
+                    time.sleep(0.1)
+                    continue
                 
-                packet = bomberman_pb2.Packet()
-                packet.ParseFromString(data)
+                try:
+                    data = recv_msg(self.sock)
+                    if not data:
+                        if self.running:  # Only print if still running
+                            print("\n[!] Server disconnected.")
+                            print(f"[*] Will attempt reconnection for {self.max_reconnection_time}s...")
+                        self.is_connected = False
+                        continue
+                    
+                    packet = bomberman_pb2.Packet()
+                    packet.ParseFromString(data)
 
-                if packet.HasField('state_snapshot'):
-                    self.render(packet.state_snapshot)
+                    # Handle server response (disconnect notifications, etc)
+                    if packet.HasField('server_response'):
+                        if not packet.server_response.success:
+                            if self.running:
+                                print(f"\n[!] Server message: {packet.server_response.message}")
+                                if "reset" in packet.server_response.message.lower():
+                                    print("[!] Game was reset. Exiting...")
+                                    self.running = False
+                            continue
+
+                    if packet.HasField('state_snapshot'):
+                        if self.running:  # Only render if still running
+                            self.render(packet.state_snapshot)
+                        
+                except (ConnectionResetError, BrokenPipeError, OSError) as e:
+                    if self.running:  # Only print if still running
+                        print(f"\n[!] Connection lost: {e}")
+                        print(f"[*] Will attempt reconnection for {self.max_reconnection_time}s...")
+                    self.is_connected = False
                     
         except Exception as e:
             if self.running:
                 print(f"[!] Receive error: {e}")
+                self.running = False
 
     def render(self, snapshot):
-            """Clears terminal and prints the new grid."""
-            output_buffer = "\033[H" # ANSI escape code to move cursor to top-left, also hide cursor
+        """Clears terminal and prints the game state."""
+        output_buffer = "\033[H"  # Move cursor to top-left
 
-            output_buffer += snapshot.ascii_grid
+        output_buffer += snapshot.ascii_grid
+        output_buffer = output_buffer.replace("\n", "\n\033[K") # Clear to end of line after each line
+        
+        if snapshot.is_game_over:
+            output_buffer += "\nGAME OVER\n"
+            self.running = False
+        else:
+            status = "[ONLINE]" if self.is_connected else "[RECONNECTING...]"
+            output_buffer += f"Player: {self.player_id} | {status} | Controls: WASD (Move), E (Bomb), Q (Quit)\n"
 
-            # Foreach \n in ascii_grid, append \033[K to clear to end of line
-            output_buffer = output_buffer.replace("\n", "\n\033[K")
-            
-            if snapshot.is_game_over:
-                output_buffer += "\nGAME OVER"
-                self.running = False
-            else:
-                output_buffer += f"Player: {self.player_id} | Controls: WASD (Move), E (Bomb), Q (Quit)\n"
-
-            output_buffer += "\033[J"  # ANSI escape codes to clear screen
-
-
-            sys.stdout.write(output_buffer)
-            sys.stdout.flush()
-
+        output_buffer += "\033[J"  # Clear to end of screen
+        
+        sys.stdout.write(output_buffer)
+        sys.stdout.flush()
 
     def send_action(self, action_type):
-        """Helper to create and send an action packet."""
+        """Send an action to the server (only if connected)."""
+        if not self.is_connected:
+            return
+        
         packet = bomberman_pb2.Packet()
         packet.client_action.player_id = self.player_id
         packet.client_action.action_type = action_type
         
         try:
             send_msg(self.sock, packet.SerializeToString())
-        except OSError:
-            self.running = False
+        except (BrokenPipeError, OSError):
+            self.is_connected = False
+            print("\n[!] Failed to send action - connection lost")
 
     def start(self):
-        # Start the Receiver Thread (Background)
-        t = threading.Thread(target=self.receive_loop)
-        t.daemon = True # Kills this thread if the main program exits
-        t.start()
+        """Start the game client."""
+        # Start the Receiver Thread
+        receiver_thread = threading.Thread(target=self.receive_loop)
+        receiver_thread.daemon = True
+        receiver_thread.start()
 
-        start_time = time.time()
-
+        # Clear screen
         if os.name == 'nt':
             os.system('cls')
         else:
             os.system('clear')
 
-        # Start the Input Loop (Main Thread - Blocking)
-        with RealTimeInput() as input_handler:
-            while self.running:
-                # Wait a tiny bit for input (1/TICK_RATE seconds)
-                key = input_handler.get_key(timeout=1.0/self.tick_rate)
+        # Main input loop
+        try:
+            with RealTimeInput() as input_handler:
+                while self.running:
+                    # Get input
+                    key = input_handler.get_key(timeout=1.0 / self.tick_rate)
 
-                if not key:
-                    continue
+                    if not key:
+                        continue
 
-                action = None
-                if key == 'w':
-                    action = bomberman_pb2.GameAction.MOVE_UP
-                elif key == 's':
-                    action = bomberman_pb2.GameAction.MOVE_DOWN
-                elif key == 'a':
-                    action = bomberman_pb2.GameAction.MOVE_LEFT
-                elif key == 'd':
-                    action = bomberman_pb2.GameAction.MOVE_RIGHT
-                elif key == 'e':
-                    action = bomberman_pb2.GameAction.PLACE_BOMB
-                elif key == 'q':
-                    print("Quitting...")
-                    self.running = False
-                    break
-                
-                if action is not None:
-                    self.send_action(action)
-                
-                # Sleep briefly to prevent flooding the server if keys are mashing
-                elapsed_time = time.time() - start_time
-                sleep_duration = max(0, (1.0 / self.tick_rate) - elapsed_time)
-                time.sleep(sleep_duration)
-        
-        self.sock.close()
+                    # Map key to action
+                    action = None
+                    if key == 'w':
+                        action = bomberman_pb2.GameAction.MOVE_UP
+                    elif key == 's':
+                        action = bomberman_pb2.GameAction.MOVE_DOWN
+                    elif key == 'a':
+                        action = bomberman_pb2.GameAction.MOVE_LEFT
+                    elif key == 'd':
+                        action = bomberman_pb2.GameAction.MOVE_RIGHT
+                    elif key == 'e':
+                        action = bomberman_pb2.GameAction.PLACE_BOMB
+                    elif key == 'q':
+                        if self.is_connected:
+                            self.send_action(bomberman_pb2.GameAction.QUIT)
+                        print("\nQuitting...")
+                        self.running = False
+                        break
+                    
+                    # Send action
+                    if action is not None:
+                        self.send_action(action)
+        finally:
+            # Ensure cleanup happens
+            self.running = False
+            
+            # Give receiver thread a moment to exit cleanly
+            time.sleep(0.2)
+            
+            # Cleanup socket
+            if self.sock:
+                try:
+                    self.sock.close()
+                except:
+                    pass
+
 
 if __name__ == "__main__":
     player_name = input("Enter Player ID: ")
@@ -163,3 +248,5 @@ if __name__ == "__main__":
     
     if client.connect():
         client.start()
+    else:
+        print("[!] Could not connect to server. Exiting...")

@@ -140,3 +140,6 @@ $RECYCLE.BIN/
 .tmp
 .swp
 .swo
+
+# Pickle
+*.pkl

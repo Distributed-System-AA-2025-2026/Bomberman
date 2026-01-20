@@ -554,6 +554,7 @@ class GameEngine:
 
         return True
 
+    
 
 if __name__ == "__main__":
     PLAY_GAME = False  # Set to True to play interactively with keyboard input
