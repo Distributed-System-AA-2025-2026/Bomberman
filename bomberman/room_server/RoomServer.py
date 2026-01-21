@@ -108,6 +108,9 @@ class RoomServer:
     def handle_client(self, client_socket, addr):
         player_id = None
 
+        # Track if the player successfully joined
+        joined_successfully = False 
+
         try:
             while self.running:
                 data = recv_msg(client_socket)
@@ -140,6 +143,9 @@ class RoomServer:
                             )
                             print(f"[+] Player '{player_id}' reconnected. Waiting for {len(self.expected_players)} more players.")
                             
+                            # Player joined successfully
+                            joined_successfully = True
+                            
                             # Send current game state immediately to the reconnecting player
                             self._send_game_state(client_socket)
                             
@@ -156,6 +162,9 @@ class RoomServer:
                                 message=f"Welcome, {player_id}!"
                             )
                             print(f"[+] Player '{player_id}' joined. Player count: {len(self.engine.players)}")
+                            
+                            # Player joined successfully
+                            joined_successfully = True 
                             
                         # Game in progress, new player cannot join
                         else:
@@ -207,22 +216,25 @@ class RoomServer:
         # Handle client disconnection
         finally:
             with self.clients_lock:
-                if player_id and player_id in self.clients:
-                    del self.clients[player_id]
+                # Only remove clients if client actually joined successfully
+                if joined_successfully and player_id and player_id in self.clients:
+                    # Ensure socket matches before deletion
+                    if self.clients[player_id] == client_socket:
+                        del self.clients[player_id]
             
             try:
                 client_socket.close()
             except:
                 pass
 
-            # Remove player from game if still in waiting state
-            if player_id and self.engine.state == game_engine.GameState.WAITING_FOR_PLAYERS:
+            # Remove player from game if still in waiting state AND client was the one who joined
+            if joined_successfully and player_id and self.engine.state == game_engine.GameState.WAITING_FOR_PLAYERS:
                 try:
                     self.engine.remove_player(player_id, verbose=True)
                 except:
                     pass
 
-            print(f"[-] Client {addr} ({player_id}) disconnected. Active players: {len(self.clients)}")
+            print(f"[-] Client {addr} ({player_id}) disconnected. Active players: {len(self.clients)}") # TODO: kill player
 
     def _send_response(self, client_socket, success: bool, message: str = ""):
         """Send a server response to a client."""
