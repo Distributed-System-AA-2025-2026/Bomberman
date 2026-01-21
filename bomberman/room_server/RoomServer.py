@@ -49,6 +49,9 @@ class RoomServer:
         # Expected players (for reconnection tracking)
         self.expected_players = set(p.id for p in self.engine.players) if self.is_resumed_game else set()
 
+        # Remove dead expected players (not alive)
+        self.expected_players = {pid for pid in self.expected_players if any(p.id == pid and p.is_alive for p in self.engine.players)}
+
     def start(self):
         self.server_socket.listen(MAX_CONNECTIONS)
         print(f"[*] Room Server listening on {HOST}:{PORT}")
@@ -188,28 +191,15 @@ class RoomServer:
                     # Handle QUIT action
                     if action.action_type == bomberman_pb2.GameAction.QUIT:
                         print(f"[*] Player '{player_id}' quit the game")
-                        
-                        # Mark player as dead if game is in progress
-                        if self.engine.state == game_engine.GameState.IN_PROGRESS:
-                            player = next((p for p in self.engine.players if p.id == player_id), None)
-                            if player:
-                                player.is_alive = False
-                                print(f"[*] Player '{player_id}' marked as dead")
-                                
-                                # Check if game should end
-                                is_game_over = self.engine.check_game_over(verbose=True)
-
-                                # Check if game over TODO: restart server
-                                if is_game_over:
-                                    # Broadcast final state
-                                    self.broadcast_game()
-                                    print("[*] Game ended.")
-                        
                         break
                     
                     # Enqueue other actions
                     self.action_queue.put((player_id, action))
 
+        # Handle specific connection errors quietly 
+        except (ConnectionResetError, ConnectionAbortedError, OSError):
+            pass  
+        
         except Exception as e:
             print(f"[ERROR] Exception while handling client {addr}: {e}")
 
@@ -227,14 +217,28 @@ class RoomServer:
             except:
                 pass
 
-            # Remove player from game if still in waiting state AND client was the one who joined
-            if joined_successfully and player_id and self.engine.state == game_engine.GameState.WAITING_FOR_PLAYERS:
-                try:
-                    self.engine.remove_player(player_id, verbose=True)
-                except:
-                    pass
+            # Process disconnection effects on game state
+            if joined_successfully and player_id:
+                # If in WAITING_FOR_PLAYERS then remove the player entirely
+                if self.engine.state == game_engine.GameState.WAITING_FOR_PLAYERS:
+                    try:
+                        self.engine.remove_player(player_id, verbose=True)
+                    except:
+                        pass
+                
+                # If in IN_PROGRESS, mark player as dead
+                elif self.engine.state == game_engine.GameState.IN_PROGRESS:
+                    try:
+                        player = next((p for p in self.engine.players if p.id == player_id), None)
+                        if player and player.is_alive:
+                            player.is_alive = False
+                            print(f"[*] Player '{player_id}' killed due to disconnection.")
+                            # Check if this death ends the game
+                            self.engine.check_game_over(verbose=True)
+                    except Exception as e:
+                        print(f"[!] Error processing disconnect for {player_id}: {e}")
 
-            print(f"[-] Client {addr} ({player_id}) disconnected. Active players: {len(self.clients)}") # TODO: kill player
+            print(f"[-] Client {addr} ({player_id}) disconnected. Active players: {len(self.clients)}")
 
     def _send_response(self, client_socket, success: bool, message: str = ""):
         """Send a server response to a client."""
