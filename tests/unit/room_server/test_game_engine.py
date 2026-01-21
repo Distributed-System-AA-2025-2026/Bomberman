@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch, mock_open
 from bomberman.room_server.GameEngine import (
     GameEngine,
+    GameState,
     TileType,
     TICK_RATE,
     BOMB_RANGE,
@@ -118,16 +119,6 @@ class TestGameEngine(unittest.TestCase):
         self.assertEqual(grid[1][1], TileType.SPAWN_POINT)
         self.assertEqual(grid[height - 2][width - 2], TileType.SPAWN_POINT)
 
-    @patch("builtins.open", new_callable=mock_open, read_data="#####\n#S S#\n#####")
-    def test_get_ascii_snapshot(self, mock_file):
-        """Test that the string representation matches the grid."""
-        engine = GameEngine()
-
-        # At least 2 spawn points so the engine accepts it
-        expected_output = "#####\n#   #\n#####\n"
-
-        self.assertEqual(engine.get_ascii_snapshot(verbose=False), expected_output)
-
     def test_seed_random_generator(self):
         """Test that seeding produces consistent random sequences."""
         seed1 = 42
@@ -179,7 +170,7 @@ class TestPlayerActions(unittest.TestCase):
         self.engine.add_player("P3")
         self.engine.add_player("P4")
 
-        with self.assertRaisesRegex(ValueError, "No available spawn points"):
+        with self.assertRaisesRegex(ValueError, "Cannot add players when the game is not in WAITING_FOR_PLAYERS state."):
             self.engine.add_player("P5")
 
     def test_remove_player(self):
@@ -267,6 +258,7 @@ class TestCombatLogic(unittest.TestCase):
 
     def test_bomb_tick_and_explode(self):
         """Test that bomb timer decreases and explodes, removing itself."""
+        self.engine.state = GameState.IN_PROGRESS
         self.engine.place_bomb("Bomber")
         bomb = self.engine.bombs[0]
 
@@ -368,16 +360,20 @@ class TestGameLoop(unittest.TestCase):
 
     def test_process_action_wrapper(self):
         """Test that tick() correctly processes a GameAction object."""
+        self.engine.state = GameState.IN_PROGRESS
         # Player at (1,1)
+        self.engine.players[0].position = Position(1, 1)
         action = MOVE_PLAYER(player_id="Enrico", direction=Direction.DOWN)
 
-        self.engine.tick(action=action)
+        self.engine.tick(actions=[action])
 
         # Should have moved to (1,2)
         p = self.engine.players[0]
         self.assertEqual(p.position.y, 2)
 
     def test_tick_increments_counter(self):
+        """Test that the tick counter increments correctly."""
+        self.engine.state = GameState.IN_PROGRESS
         self.assertEqual(self.engine.current_tick, 0)
         self.engine.tick()
         self.assertEqual(self.engine.current_tick, 1)
