@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package bomberman;
+
+message Packet {
+  oneof payload {
+    JoinRequest join_request = 1;
+    ServerResponse server_response = 2;
+    GameAction client_action = 3;
+    GameStateSnapshot state_snapshot = 4;
+  }
+}
+
+message JoinRequest {
+  string player_id = 1;
+}
+
+message ServerResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+  int32 tick_rate = 4;
+}
+
+// Client -> Server
+message GameAction {
+  enum ActionType {
+    STAY = 0;
+    MOVE_UP = 1;
+    MOVE_DOWN = 2;
+    MOVE_LEFT = 3;
+    MOVE_RIGHT = 4;
+    PLACE_BOMB = 5;
+    QUIT = 6;
+  }
+  ActionType action_type = 1;
+  string player_id = 2;
+}
+
+// Server -> Client
+message GameStateSnapshot {
+  string ascii_grid = 1;
+  bool is_game_over = 2;
+}
