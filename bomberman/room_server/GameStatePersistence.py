@@ -1,7 +1,7 @@
 import time
 import pickle
 from typing import Optional, Tuple
-import GameEngine
+import bomberman.room_server.GameEngine as GameEngine
 
 # Constants
 SERVER_RECONNECTION_TIMEOUT = 30  # Seconds to wait for reconnection
