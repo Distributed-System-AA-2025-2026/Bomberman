@@ -117,12 +117,13 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_HUB }}:latest
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ROOM }}:latest
+          # docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ROOM }}:latest
 
       - name: Import images to microk8s
         run: |
           docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_HUB }}:latest | microk8s ctr image import -
-          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ROOM }}:latest | microk8s ctr image import -
+          microk8s ctr images tag ghcr.io/${{ env.IMAGE_NAME_HUB }}:latest docker.io/library/bomberman-hub:latest
+          # docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ROOM }}:latest | microk8s ctr image import -
 
       - name: Deploy to microk8s
         run: |
