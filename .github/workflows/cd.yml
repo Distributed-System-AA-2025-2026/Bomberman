@@ -5,6 +5,7 @@ on:
     workflows: ["CI - Test"]
     types: [completed]
     branches: [main, master, feature/ci-cd]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
