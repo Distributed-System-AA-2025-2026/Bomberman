@@ -13,8 +13,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME_HUB: ${{ github.repository_owner }}/bomberman-hub
-  IMAGE_NAME_ROOM: ${{ github.repository_owner }}/bomberman-room
+  IMAGE_NAME_HUB: distributed-system-aa-2025-2026/bomberman-hub
+  IMAGE_NAME_ROOM: distributed-system-aa-2025-2026/bomberman-room
 
 jobs:
   build-and-push:
