@@ -362,11 +362,11 @@ class TestHubServerInitialization:
                 HubServer(discovery_mode='manual')
 
     def test_init_missing_hostname_raises_error(self, mock_socket_handler, mock_failure_detector):
-        """Test that missing HOSTNAME raises KeyError."""
-        env = {'GOSSIP_PORT': '9000'}
+        """Test that wrong HOSTNAME raises KeyError."""
+        env = {'GOSSIP_PORT': '9000', 'HOSTNAME': 'hb0'}
 
         with patch.dict(os.environ, env, clear=True):
-            with pytest.raises(KeyError):
+            with pytest.raises(ValueError):
                 HubServer(discovery_mode='manual')
 
     def test_init_missing_gossip_port_raises_error(self, mock_socket_handler, mock_failure_detector):
