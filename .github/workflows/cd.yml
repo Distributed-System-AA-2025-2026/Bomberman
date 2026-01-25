@@ -1,15 +1,11 @@
 name: CD - Build & Deploy
 
 on:
-  #workflow_run:
-  #  workflows: ["CI - Test"]
-  #  types: [completed]
-  #  branches: [main, master, feature/ci-cd]
-  #workflow_dispatch:
-  push:
-    branches: [main, master, feature/ci-cd]
-  pull_request:
-    branches: [main, master, feature/ci-cd]
+  workflow_run:
+    workflows: ["CI - Test"]
+    types: [completed]
+    branches: [main, master]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -19,6 +15,13 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    # Esegui se: CI success + push, OPPURE dispatch manuale
+    if: >-
+      ${{
+        (github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push') ||
+        github.event_name == 'workflow_dispatch'
+      }}
 
     permissions:
       contents: read
@@ -26,10 +29,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set output variables
-        id: vars
-        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -41,7 +42,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # --- Hub Image ---
       - name: Extract metadata (Hub)
         id: meta-hub
         uses: docker/metadata-action@v5
@@ -62,65 +62,39 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # --- Room Image ---
-      # - name: Extract metadata (Room)
-      #   id: meta-room
-      #   uses: docker/metadata-action@v5
-      #   with:
-      #     images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ROOM }}
-      #     tags: |
-      #       type=raw,value=latest,enable={{is_default_branch}}
-      #       type=sha,prefix=,format=short
-
-      # - name: Build and push Room image
-      #   uses: docker/build-push-action@v5
-      #   with:
-      #     context: .
-      #     file: docker/Dockerfile.room
-      #     push: true
-      #     tags: ${{ steps.meta-room.outputs.tags }}
-      #     labels: ${{ steps.meta-room.outputs.labels }}
-      #     cache-from: type=gha
-      #     cache-to: type=gha,mode=max
-
-  # ============================================
-  # Deploy (Self-hosted runner on your VM)
-  # ============================================
   deploy:
     needs: build-and-push
     runs-on: self-hosted
 
     env:
-      KUBECONFIG: /var/snap/microk8s/current/credentials/client.config
+      REGISTRY: ghcr.io
+      IMAGE_NAME_HUB: distributed-system-aa-2025-2026/bomberman-hub
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Pull images from GHCR
+      - name: Pull image from GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_HUB }}:latest
-          microk8s ctr images tag ghcr.io/${{ env.IMAGE_NAME_HUB }}:latest docker.io/library/bomberman-hub:latest
-          # docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ROOM }}:latest
 
-      - name: Import images to microk8s
+      - name: Import and tag image in microk8s
         run: |
+          # Prima importa
           docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_HUB }}:latest | microk8s ctr image import -
-          # docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ROOM }}:latest | microk8s ctr image import -
+          # Poi tagga (DOPO l'import)
+          microk8s ctr images tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_HUB }}:latest docker.io/library/bomberman-hub:latest
 
       - name: Deploy to microk8s
         run: |
-          # Create namespace if not exists
           microk8s kubectl apply -f k8s/base/namespace.yaml
-
-          # Apply Hub components
           microk8s kubectl apply -f k8s/base/hub/configmap.yaml
           microk8s kubectl apply -f k8s/base/hub/rbac.yaml
           microk8s kubectl apply -f k8s/base/hub/statefulset.yaml
           microk8s kubectl apply -f k8s/base/hub/service.yaml
           microk8s kubectl apply -f k8s/base/hub/ingress.yaml
-
-          # Restart pods to pick up new image
           microk8s kubectl rollout restart statefulset/hub -n bomberman
 
       - name: Wait for rollout
@@ -131,8 +105,5 @@ jobs:
         run: |
           echo "=== Pod Status ==="
           microk8s kubectl get pods -n bomberman -o wide
-          echo ""
           echo "=== Services ==="
           microk8s kubectl get svc -n bomberman
-          echo ""
-          echo "=== Deployment successful! ==="
