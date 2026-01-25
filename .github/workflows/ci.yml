@@ -1,14 +1,10 @@
-name: Bomberman Hub CI/CD
+name: CI - Test
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, feature/ci-cd]
   pull_request:
-    branches: [main, master]
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/hub
+    branches: [main, master, feature/ci-cd]
 
 jobs:
   test:
@@ -23,96 +19,55 @@ jobs:
           python-version: "3.11"
 
       - name: Cache Poetry dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cache/pypoetry
+            ~/.local
             .venv
           key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
           restore-keys: |
             ${{ runner.os }}-poetry-
 
       - name: Install Poetry
-        run: pip install poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
-        run: poetry install
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --no-interaction
 
-      - name: Run linter (optional)
+      - name: Run linter
         run: poetry run ruff check . || true
-        continue-on-error: true
-
-      - name: Run type checker (optional)
-        run: poetry run mypy src/ || true
         continue-on-error: true
 
       - name: Run tests with coverage
         run: |
           poetry run pytest \
-            --cov=src \
+            --cov=bomberman \
             --cov-report=xml \
             --cov-report=html \
             --cov-report=term-missing \
             --junitxml=junit.xml \
             -v
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
         if: github.event_name == 'push'
         with:
           files: ./coverage.xml
           flags: unittests
-          name: codecov-hub
+          name: codecov-bomberman
           fail_ci_if_error: false
 
       - name: Upload test results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
           path: |
             junit.xml
             htmlcov/
-
-  build-and-push:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Hub image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile.hub
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          retention-days: 7
