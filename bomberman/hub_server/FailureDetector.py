@@ -1,13 +1,15 @@
 import threading
 import time
+import os
+
 from typing import Callable
 
 from bomberman.hub_server.HubState import HubState
 
 class FailureDetector:
-    SUSPECT_TIMEOUT = 5.0
-    DEAD_TIMEOUT = 20.0
-    CHECK_INTERVAL = 1.0
+    SUSPECT_TIMEOUT = int(os.environ.get('FAILURE_DETECTOR_SUSPECT_TIMEOUT', 5.0))
+    DEAD_TIMEOUT = int(os.environ.get('FAILURE_DETECTOR_DEAD_TIMEOUT', 20.0))
+    CHECK_INTERVAL = int(os.environ.get('FAILURE_DETECTOR_CHECK_INTERVAL', 1.0))
 
     _state: HubState
     _my_index: int

@@ -1,9 +1,8 @@
 import queue
-import time
-import GameEngine as game_engine
-from gossip import bomberman_pb2
-from NetworkUtils import send_msg, recv_msg
-from GameStatePersistence import *
+import bomberman.room_server.GameEngine as game_engine
+from bomberman.room_server.gossip import bomberman_pb2
+from bomberman.room_server.NetworkUtils import send_msg, recv_msg
+from bomberman.room_server.GameStatePersistence import *
 import socket
 import threading
 

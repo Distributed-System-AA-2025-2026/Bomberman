@@ -53,7 +53,6 @@ pip-log.txt
 pip-delete-this-directory.txt
 .pybuilder/
 target/
-poetry.lock
 
 ########################
 # Test / coverage

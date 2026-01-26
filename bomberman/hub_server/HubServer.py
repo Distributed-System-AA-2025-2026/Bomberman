@@ -3,7 +3,7 @@ import time
 import random
 from typing import Literal
 import re
-from datetime import datetime
+from bomberman.hub_server.hublogging import print_console
 
 from bomberman.common.ServerReference import ServerReference
 from bomberman.hub_server.HubState import HubState
@@ -11,6 +11,10 @@ from bomberman.hub_server.HubSocketHandler import HubSocketHandler
 from bomberman.hub_server.gossip import messages_pb2 as pb
 from bomberman.hub_server.FailureDetector import FailureDetector
 from bomberman.hub_server.HubPeer import HubPeer
+from bomberman.hub_server.PeerDiscoveryMonitor import PeerDiscoveryMonitor
+from bomberman.hub_server.room_manager import create_room_manager
+from bomberman.hub_server.Room import Room
+from bomberman.common.RoomState import RoomStatus
 
 
 def get_hub_index(hostname: str) -> int:
@@ -19,15 +23,13 @@ def get_hub_index(hostname: str) -> int:
 
     match = re.match(r"hub-(\d+)(?:\.|$)", hostname)
     if not match:
+        print(f"GIVEN INVALID HOSTNAME: {hostname}")
         raise ValueError(f"Invalid hub hostname: {hostname}")
     string_index = match.group(1)
     output = int(string_index)
     del string_index
     return output
 
-def print_console(message: str, category: Literal['Error', 'Gossip', 'Info', 'FailureDetector'] = 'Gossip'):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}][HubServer][{category}]: {message}")
 
 class HubServer:
     _hostname: str
@@ -37,11 +39,11 @@ class HubServer:
     _discovery_mode: Literal['manual', 'k8s']
     _last_used_nonce: int
     _fanout = 4
-
+    _peer_discovery_monitor: PeerDiscoveryMonitor
 
     def __init__(self, discovery_mode: Literal['manual', 'k8s'] = "manual"):
         self._state = HubState()
-        self._hostname = os.environ["HOSTNAME"]
+        self._hostname = os.environ.get("HOSTNAME", 'hub-0.local')
         self._hub_index = get_hub_index(self._hostname)
         self._discovery_mode = discovery_mode
         self._last_used_nonce = 0
@@ -53,7 +55,8 @@ class HubServer:
         # Socket handler - solo networking, logica qui
         self._socket_handler = HubSocketHandler(
             port=int(os.environ['GOSSIP_PORT']),
-            on_message=self._on_gossip_message
+            on_message=self._on_gossip_message,
+            logging=print_console
         )
         self._socket_handler.start()
 
@@ -63,8 +66,6 @@ class HubServer:
             self._hub_index
         ))
 
-        self._discovery_peers()
-
         self._failure_detector = FailureDetector(
             state=self._state,
             my_index=self._hub_index,
@@ -73,17 +74,35 @@ class HubServer:
         )
         self._failure_detector.start()
 
+        self._peer_discovery_monitor = PeerDiscoveryMonitor(
+            state=self._state,
+            my_index=self._hub_index,
+            fanout=self._fanout,
+            on_insufficient_peers=self._discovery_peers
+        )
+        self._peer_discovery_monitor.start()
+
+        self._room_manager = create_room_manager(
+            discovery_mode=discovery_mode,
+            hub_index=self._hub_index,
+            on_room_activated=self._broadcast_room_activated
+        )
+        self._room_manager.initialize_pool()
+
 
         print_console(f"Hub server started with index {self._hub_index}", "Info")
+        print_console(f"Hub server started with hostname {self._hostname}", "Info")
+        print_console(f"Hub server started with discovery mode {self._discovery_mode}", "Info")
 
     def _on_gossip_message(self, message: pb.GossipMessage, sender: ServerReference):
+        sender = self._resolve_server_reference(sender, message.forwarded_by)
         # Traccia l'origine se diverso dal forwarder
         self._ensure_peer_exists(message.forwarded_by)
         if message.forwarded_by != message.origin:
             self._ensure_peer_exists(message.origin)
 
         is_new = self._state.execute_heartbeat_check(message.origin, message.nonce, message.event_type == pb.PEER_LEAVE)
-        self._state.mark_forward_peer_as_alive(message.forwarded_by, sender) #Marking forwarder as alive
+        self._state.mark_forward_peer_as_alive(message.forwarded_by, sender)  # Marking forwarder as alive
         if not is_new:
             return
 
@@ -92,6 +111,11 @@ class HubServer:
 
         # Forward
         self._forward_message(message)
+
+    def _resolve_server_reference(self, reference: ServerReference, peer_index: int) -> ServerReference:
+        if self._discovery_mode == "k8s":
+            return self._calculate_server_reference(peer_index)
+        return reference
 
     def _process_message(self, message: pb.GossipMessage):
         """Handle the specific payload"""
@@ -109,8 +133,9 @@ class HubServer:
             case pb.ROOM_ACTIVATED:
                 self._handle_room_activated(message.room_activated)
             case pb.ROOM_STARTED:
-                self._handle_room_started(message.room_closed)
-
+                self._handle_room_started(message.room_started)
+            case pb.ROOM_CLOSED:
+                self._handle_room_closed(message.room_closed)
 
     def _handle_peer_join(self, payload: pb.PeerJoinPayload):
         print_console(f"Peer with index {payload.joining_peer} joined", "Gossip")
@@ -125,7 +150,7 @@ class HubServer:
         self._state.mark_peer_explicitly_alive(payload.alive_peer)
 
     def _handle_peer_suspicious(self, payload: pb.PeerSuspiciousPayload):
-        #If I'm suspicious, then I'll declare that i'm alive, else I can ignore the message, because I'll discover that a peer is suspicious by myself
+        # If I'm suspicious, then I'll declare that i'm alive, else I can ignore the message, because I'll discover that a peer is suspicious by myself
         if payload.suspicious_peer == self._hub_index:
             print_console("Someone think that I'm suspicious. Let's declare that I'm alive!", "Gossip")
             self._broadcast_peer_alive()
@@ -137,11 +162,53 @@ class HubServer:
             self._state.remove_peer(payload.dead_peer)
 
     def _handle_room_activated(self, payload: pb.RoomActivatedPayload):
-        pass #TODO
+        print_console(f"Room {payload.room_id} activated by hub {payload.owner_hub}", "Gossip")
 
-    def _handle_room_started(self, payload: pb.RoomClosedPayload):
-        pass #TODO
+        # Aggiungi al mio state (room remota)
+        room = Room(
+            room_id=payload.room_id,
+            owner_hub_index=payload.owner_hub,
+            status=RoomStatus.ACTIVE,
+            external_port=payload.external_port,
+            internal_service=""  # Non mi serve, è remota
+        )
+        self._state.add_room(room)
 
+    def _handle_room_started(self, payload: pb.RoomStartedPayload):
+        """Room ha iniziato la partita, non più joinable"""
+        print_console(f"Room {payload.room_id} started playing", "Gossip")
+        self._state.set_room_status(payload.room_id, RoomStatus.PLAYING)
+
+    def _handle_room_closed(self, payload: pb.RoomClosedPayload):
+        """Partita finita, room torna disponibile"""
+        print_console(f"Room {payload.room_id} closed.", "Gossip")
+        self._state.set_room_status(payload.room_id, RoomStatus.DORMANT)
+
+    def broadcast_room_started(self, room_id: str):
+        """Chiamato dalla room quando inizia la partita"""
+        msg = pb.GossipMessage(
+            nonce=self._get_next_nonce(),
+            origin=self._hub_index,
+            forwarded_by=self._hub_index,
+            timestamp=time.time(),
+            event_type=pb.ROOM_STARTED,
+            room_started=pb.RoomStartedPayload(room_id=room_id)
+        )
+        self._state.set_room_status(room_id, RoomStatus.PLAYING)
+        self._send_messages_and_forward(msg)
+
+    def broadcast_room_closed(self, room_id: str):
+        """Chiamato dalla room quando finisce la partita"""
+        msg = pb.GossipMessage(
+            nonce=self._get_next_nonce(),
+            origin=self._hub_index,
+            forwarded_by=self._hub_index,
+            timestamp=time.time(),
+            event_type=pb.ROOM_CLOSED,
+            room_closed=pb.RoomClosedPayload(room_id=room_id)
+        )
+        self._state.set_room_status(room_id, RoomStatus.DORMANT)
+        self._send_messages_and_forward(msg)
 
     def _ensure_peer_exists(self, peer_index: int):
         if self._state.get_peer(peer_index) is None:
@@ -152,7 +219,7 @@ class HubServer:
         alive_peers: list[HubPeer] = self._state.get_all_not_dead_peers(self._hub_index)
         # alive_peers: list[HubPeer] = self._state.get_all_not_dead_peers()
         targets: list[HubPeer] = random.sample(alive_peers, min(self._fanout, len(alive_peers)))
-        references: list[ServerReference] = list(map(lambda e: e.reference , targets))
+        references: list[ServerReference] = list(map(lambda e: e.reference, targets))
         message.forwarded_by = self._hub_index
         self._socket_handler.send_to_many(message, references)
 
@@ -160,23 +227,33 @@ class HubServer:
         if self._discovery_mode == "manual":
             return ServerReference('127.0.0.1', 9000 + peer_index)
         else:
-            return ServerReference(f"hub-{peer_index}.hub-headless", int(os.environ['GOSSIP_PORT']))
-
-    def _discovery_peers(self): #TODO
-        if self._discovery_mode == "manual" and self._hub_index != 0:
-            msg = pb.GossipMessage(
-                nonce=self._get_next_nonce(),
-                origin=self._hub_index,
-                forwarded_by=self._hub_index,
-                timestamp=time.time(),
-                event_type=pb.PEER_JOIN,
-                peer_join=pb.PeerJoinPayload(
-                    joining_peer=self._hub_index
-                )
+            service_name = os.environ.get('HUB_SERVICE_NAME', 'hub-service')
+            namespace = os.environ.get('K8S_NAMESPACE', 'bomberman')
+            return ServerReference(
+                f"hub-{peer_index}.{service_name}.{namespace}.svc.cluster.local",
+                int(os.environ['GOSSIP_PORT'])
             )
-            self._send_messages_specific_destination(msg, ServerReference('127.0.0.1', 9000))
+
+    def _discovery_peers(self):
+        peer_no = int(os.environ.get('EXPECTED_HUB_COUNT', self._hub_index + 1))
+        discovering_index = random.randrange(0, peer_no, 1)
+
+        msg = pb.GossipMessage(
+            nonce=self._get_next_nonce(),
+            origin=self._hub_index,
+            forwarded_by=self._hub_index,
+            timestamp=time.time(),
+            event_type=pb.PEER_JOIN,
+            peer_join=pb.PeerJoinPayload(
+                joining_peer=self._hub_index
+            )
+        )
+
+        if self._discovery_mode == "manual" and self._hub_index != 0:
+            self._send_messages_specific_destination(msg, ServerReference('127.0.0.1', 9000 + discovering_index))
         if self._discovery_mode == "k8s":
-            pass
+            reference = self._calculate_server_reference(discovering_index)
+            self._send_messages_specific_destination(msg, reference)
 
     def stop(self):
         msg = pb.GossipMessage(
@@ -190,7 +267,9 @@ class HubServer:
             )
         )
         self._send_messages_and_forward(msg)
+        self._peer_discovery_monitor.stop()
         self._socket_handler.stop()
+        self._room_manager.cleanup()
 
     def _send_messages_and_forward(self, message: pb.GossipMessage):
         if message.origin != self._hub_index:
@@ -247,3 +326,59 @@ class HubServer:
             )
         )
         self._send_messages_and_forward(msg)
+
+    def _broadcast_room_activated(self, room: Room):
+        """Chiamato da RoomManager quando una room viene attivata"""
+        # Aggiungi al mio state
+        self._state.add_room(room)
+
+        # Broadcast via gossip
+        msg = pb.GossipMessage(
+            nonce=self._get_next_nonce(),
+            origin=self._hub_index,
+            forwarded_by=self._hub_index,
+            timestamp=time.time(),
+            event_type=pb.ROOM_ACTIVATED,
+            room_activated=pb.RoomActivatedPayload(
+                room_id=room.room_id,
+                owner_hub=room.owner_hub_index,
+                external_port=room.external_port,
+                external_address=self._room_manager.external_domain
+            )
+        )
+        self._send_messages_and_forward(msg)
+
+    def get_or_activate_room(self) -> Room | None:
+        """Chiamato dal matchmaking endpoint"""
+        room = self._state.get_active_room()
+        if room:
+            return room
+
+        return self._room_manager.activate_room()
+
+    def get_all_peers(self) -> list[HubPeer]:
+        return self._state.get_all_peers()
+
+    @property
+    def hostname(self) -> str:
+        return self._hostname
+
+    @property
+    def hub_index(self) -> int:
+        return self._hub_index
+
+    @property
+    def discovery_mode(self) -> str:
+        return self._discovery_mode
+
+    @property
+    def fanout(self) -> int:
+        return self._fanout
+
+    @property
+    def last_used_nonce(self) -> int:
+        return self._last_used_nonce
+
+    @property
+    def room_manager(self):
+        return self._room_manager

@@ -1,29 +1,31 @@
-[project]
+[tool.poetry]
 name = "bomberman"
 version = "1.0.0"
 description = "Distributed Software System Project"
-authors = [
-    { name = "Enrico Ferraiolo" },
-    { name = "Daniele Romanella" }
-]
+authors = ["Enrico Ferraiolo", "Daniele Romanella"]
 readme = "README.md"
-requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 
-dependencies = ["fastapi (>=0.128.0,<0.129.0)", "uvicorn (>=0.40.0,<0.41.0)", "protobuf (>=6.33.2,<7.0.0)", "grpcio-tools (>=1.76.0,<2.0.0)"]
-
-[project.scripts]
-bomberman = "bomberman.__main__:main"
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = ">=0.128.0,<0.129.0"
+uvicorn = ">=0.40.0,<0.41.0"
+protobuf = ">=6.33.2,<7.0.0"
+grpcio-tools = ">=1.76.0,<2.0.0"
+kubernetes = "^35.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
 pytest-cov = "^7.0.0"
+ruff = "^0.1.0"
+mypy = "^1.0"
+
+[tool.poetry.scripts]
+bomberman = "bomberman.__main__:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
-
-# --- Tool configurations ---
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

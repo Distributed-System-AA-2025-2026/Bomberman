@@ -499,8 +499,12 @@ class TestMessageSending:
         msg = create_gossip_message()
         addr = ServerReference("192.168.1.1", 9000)
 
-        with pytest.raises(OSError, match="Network unreachable"):
-            handler.send(msg, addr)
+        mock_logging = Mock()
+        handler._logging = mock_logging
+
+
+        handler.send(msg, addr)
+        mock_logging.assert_called_once()
 
     def test_send_to_many_partial_failure(self, handler, mock_socket):
         """Test send_to_many when one send fails."""
@@ -518,12 +522,10 @@ class TestMessageSending:
             ServerReference("192.168.1.3", 9003),
         ]
 
-        # Should raise on second send
-        with pytest.raises(OSError):
-            handler.send_to_many(msg, addrs)
+        handler.send_to_many(msg, addrs)
 
         # Should have called sendto twice (once successful, once failed)
-        assert mock_socket.sendto.call_count == 2
+        assert mock_socket.sendto.call_count == 3
 
 
 class TestThreading:
@@ -692,9 +694,11 @@ class TestEdgeCasesAndErrorHandling:
 
         # Socket might raise error
         mock_socket.sendto.side_effect = OSError("Invalid address")
+        mock_logging = Mock()
+        handler._logging = mock_logging
 
-        with pytest.raises(OSError):
-            handler.send(msg, addr)
+        handler.send(msg, addr)
+        mock_logging.assert_called_once()
 
     def test_receive_from_invalid_source(self, handler, callback):
         """Test receiving message from unusual source address."""
