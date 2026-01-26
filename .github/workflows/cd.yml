@@ -84,7 +84,9 @@ jobs:
         run: |
           # Prima importa
           docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_HUB }}:latest | microk8s ctr image import -
-          # Poi tagga (DOPO l'import)
+          # Rimuovi tag vecchio se esiste
+          microk8s ctr images rm docker.io/library/bomberman-hub:latest || true
+          # Poi tagga
           microk8s ctr images tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_HUB }}:latest docker.io/library/bomberman-hub:latest
 
       - name: Deploy to microk8s
