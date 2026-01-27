@@ -8,8 +8,8 @@ from NetworkUtils import send_msg, recv_msg
 from bomberman.room_server.GameInputHelper import RealTimeInput
 from bomberman.room_server.GameStatePersistence import SERVER_RECONNECTION_TIMEOUT
 
-HOST = 'hub.bomberman.local'
-PORT = 31750
+HOST = 'bomberman.romanellas.cloud'
+PORT = 32612
 RECONNECT_INTERVAL = 2  # Seconds between reconnection attempts
 
 
