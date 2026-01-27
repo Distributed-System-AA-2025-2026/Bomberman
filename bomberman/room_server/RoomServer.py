@@ -7,15 +7,33 @@ import time
 import socket
 import threading
 import sys
+from fastapi import FastAPI 
+import uvicorn
 
 HOST = "0.0.0.0"
 PORT = 5000
+API_PORT = 8080  # Port for the HTTP API
 MAX_CONNECTIONS = 4  # Maximum number of concurrent player connections
 GAME_OVER_RESTART_INTERVAL = 5.0  # Seconds to wait before restart
+
+app = FastAPI()
+server_instance = None  # Global reference to access the RoomServer instance@app.get("/status")
+
+@app.get("/status")
+def get_game_status():
+    """Returns the current status of the GameEngine."""
+    if server_instance and server_instance.engine:
+        return {
+            "status": server_instance.engine.state.name,  # e.g., "WAITING_FOR_PLAYERS"
+        }
+    return {"status": "ROOM_SERVER_NOT_INITIALIZED"}
 
 
 class RoomServer:
     def __init__(self):
+        global server_instance
+        server_instance = self  # Set global reference
+
         # Try to load saved game state
         loaded_state = GameStatePersistence.load_game_state()
         
@@ -60,6 +78,15 @@ class RoomServer:
     def start(self):
         self.server_socket.listen(MAX_CONNECTIONS)
         print(f"[*] Room Server listening on {HOST}:{PORT}")
+
+        # Start API server in a separate thread
+        api_thread = threading.Thread(
+            target=uvicorn.run, 
+            kwargs={"app": app, "host": HOST, "port": API_PORT, "log_level": "error"}
+        )
+        api_thread.daemon = True
+        api_thread.start()
+        print(f"[*] API Server listening on {HOST}:{API_PORT}")
         
         if self.is_resumed_game:
             print(f"[*] Waiting {SERVER_RECONNECTION_TIMEOUT}s for {len(self.expected_players)} players to reconnect...")
