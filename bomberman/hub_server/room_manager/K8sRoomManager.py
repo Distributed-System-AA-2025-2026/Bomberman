@@ -9,6 +9,8 @@ from bomberman.hub_server.room_manager.RoomManagerBase import RoomManagerBase, p
 
 class K8sRoomManager(RoomManagerBase):
     STARTING_POOL_SIZE = 1  # Una room per hub
+    ROOM_IMAGE = "docker.io/library/bomberman-room:latest"
+    ROOM_PORT = 5000
 
     _k8s_core: client.CoreV1Api
     _external_address: str
@@ -72,14 +74,23 @@ class K8sRoomManager(RoomManagerBase):
                 containers=[
                     client.V1Container(
                         name="room",
-                        image="httpd:2.4",  # TODO: Room image di enrico
-                        ports=[client.V1ContainerPort(container_port=80)],
+                        image=self.ROOM_IMAGE,
+                        image_pull_policy="Never",
+                        ports=[client.V1ContainerPort(
+                            container_port=self.ROOM_PORT,
+                            protocol="TCP"
+                        )],
                         env=[
                             client.V1EnvVar(name="ROOM_ID", value=room_id),
                             client.V1EnvVar(name="OWNER_HUB", value=str(self._hub_index)),
-                        ]
+                        ],
+                        resources=client.V1ResourceRequirements(
+                            requests={"memory": "64Mi", "cpu": "100m"},
+                            limits={"memory": "256Mi", "cpu": "500m"}
+                        )
                     )
-                ]
+                ],
+                restart_policy="Never"
             )
         )
         self._k8s_core.create_namespaced_pod(namespace=self._namespace, body=pod)
@@ -88,14 +99,20 @@ class K8sRoomManager(RoomManagerBase):
         service = client.V1Service(
             metadata=client.V1ObjectMeta(
                 name=f"room-{room_id}-svc",
-                namespace=self._namespace
+                namespace=self._namespace,
+                labels={
+                    "app": "room",
+                    "room-id": room_id,
+                    "owner-hub": str(self._hub_index)
+                }
             ),
             spec=client.V1ServiceSpec(
                 type="NodePort",
                 selector={"room-id": room_id},
                 ports=[client.V1ServicePort(
-                    port=80,
-                    target_port=80
+                    port=self.ROOM_PORT,
+                    target_port=self.ROOM_PORT,
+                    protocol="TCP"
                 )]
             )
         )

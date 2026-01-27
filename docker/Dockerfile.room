@@ -1,0 +1,33 @@
+# Stage 1: Builder
+FROM python:3.11-slim AS builder
+
+RUN pip install --no-cache-dir poetry==1.7.1
+
+WORKDIR /app
+
+RUN poetry config virtualenvs.create false
+
+COPY pyproject.toml poetry.lock ./
+
+RUN poetry install --only main --no-root --no-interaction --no-ansi
+
+# Stage 2: Runtime
+FROM python:3.11-slim
+
+RUN useradd -m -u 1000 bomberman
+
+WORKDIR /app
+
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --chown=bomberman:bomberman ./bomberman ./bomberman
+
+USER bomberman
+
+ENV PYTHONPATH=/app
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD python -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost', 5000)); s.close()" || exit 1
+
+EXPOSE 5000
+
+CMD ["python", "bomberman/room_server/RoomServer.py"]

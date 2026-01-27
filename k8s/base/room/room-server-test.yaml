@@ -1,0 +1,76 @@
+# Test Pod per verificare che il RoomServer funzioni in k8s
+#
+# BUILD LOCALE (prima di applicare):
+#   docker build -f Dockerfile.room_server -t room-server:local .
+#   docker save room-server:local | microk8s ctr image import -
+#
+# USO:
+#   kubectl apply -f room-server-test.yaml
+#   kubectl logs room-server-test -f
+#   kubectl delete -f room-server-test.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: room-server-test
+  labels:
+    app: room-server
+    environment: test
+spec:
+  containers:
+    - name: room-server
+      # Per test locale usa: room-server:local
+      # Per CI/CD usa: ghcr.io/distributed-system-aa-2025-2026/bomberman/room-server:latest
+      image: docker.io/library/room-server:test
+      imagePullPolicy: Never  # Usa immagine locale, non pullare dal registry
+      ports:
+        - containerPort: 5000
+          protocol: TCP
+          name: game
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "100m"
+        limits:
+          memory: "256Mi"
+          cpu: "500m"
+      # Liveness: riavvia se il processo muore
+      livenessProbe:
+        tcpSocket:
+          port: 5000
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 3
+        failureThreshold: 3
+      # Readiness: non riceve traffico finché non è pronto
+      readinessProbe:
+        tcpSocket:
+          port: 5000
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        timeoutSeconds: 2
+        failureThreshold: 3
+      # Volume per persistenza save file (opzionale)
+      volumeMounts:
+        - name: game-data
+          mountPath: /app/data
+  volumes:
+    - name: game-data
+      emptyDir: {}  # Usa PersistentVolumeClaim in produzione
+  restartPolicy: Never  # Per test, non riavviare automaticamente
+---
+# Service per esporre il Pod (opzionale per il test)
+apiVersion: v1
+kind: Service
+metadata:
+  name: room-server-test-svc
+spec:
+  type: NodePort
+  selector:
+    app: room-server
+    environment: test
+  ports:
+    - port: 5000
+      targetPort: 5000
+      protocol: TCP
+      name: game
+      # nodePort verrà assegnato automaticamente (30000-32767)
