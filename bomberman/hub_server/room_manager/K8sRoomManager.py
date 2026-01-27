@@ -202,17 +202,50 @@ class K8sRoomManager(RoomManagerBase):
         return created.spec.ports[0].node_port
 
     def _delete_room(self, room_id: str) -> None:
+        pod_name = f"room-{room_id}"
+        svc_name = f"room-{room_id}-svc"
+
         try:
             self._k8s_core.delete_namespaced_pod(
-                name=f"room-{room_id}",
+                name=pod_name,
                 namespace=self._namespace
             )
+        except client.exceptions.ApiException as e:
+            if e.status != 404:
+                print_console(f"Failed to delete pod {pod_name}: {e}", "Error")
+
+        try:
             self._k8s_core.delete_namespaced_service(
-                name=f"room-{room_id}-svc",
+                name=svc_name,
                 namespace=self._namespace
             )
-        except Exception as e:
-            print_console(f"Failed to delete room {room_id}: {e}", "Error")
+        except client.exceptions.ApiException as e:
+            if e.status != 404:
+                print_console(f"Failed to delete service {svc_name}: {e}", "Error")
+
+        # Aspetta che il pod sia effettivamente eliminato
+        self._wait_for_pod_deletion(pod_name)
+
+    def _wait_for_pod_deletion(self, pod_name: str, timeout: int = 30) -> None:
+        """Aspetta che un pod sia completamente eliminato."""
+        from time import sleep, time
+
+        start = time()
+        while time() - start < timeout:
+            try:
+                self._k8s_core.read_namespaced_pod(
+                    name=pod_name,
+                    namespace=self._namespace
+                )
+                # Pod esiste ancora, aspetta
+                sleep(1)
+            except client.exceptions.ApiException as e:
+                if e.status == 404:
+                    # Pod eliminato
+                    return
+                raise
+
+        print_console(f"Timeout waiting for pod {pod_name} deletion", "Warning")
 
     def get_room_address(self, room: Room) -> str:
         return self._external_address
