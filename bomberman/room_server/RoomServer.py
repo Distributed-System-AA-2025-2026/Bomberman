@@ -23,7 +23,7 @@ MAX_CONNECTIONS = 4  # Maximum number of concurrent player connections
 GAME_OVER_RESTART_INTERVAL = 5.0  # Seconds to wait before restart
 
 app = FastAPI()
-server_instance = None  # Global reference to access the RoomServer instance@app.get("/status")
+server_instance = None  # Global reference to access the RoomServer instance
 
 @app.get("/status")
 def get_game_status():
@@ -54,6 +54,7 @@ class RoomServer:
         print(f"[*] Room ID: {self.room_id}")
         
         self.game_started_notified = False
+        self.game_over_notified = False 
 
         # Try to load saved game state
         loaded_state = GameStatePersistence.load_game_state()
@@ -191,6 +192,7 @@ class RoomServer:
         self.is_resumed_game = False
         self.expected_players.clear()
         self.game_started_notified = False
+        self.game_over_notified = False  
         
         # Delete the old save file
         GameStatePersistence.delete_save_file()
@@ -360,6 +362,10 @@ class RoomServer:
 
             # Handle game over and restart
             if self.engine.state == game_engine.GameState.GAME_OVER:
+                # Notify hub of game over 
+                if not self.game_over_notified:
+                    self._notify_hub_game_close()
+
                 # If game over delete save and restart timer
                 if self.game_over_timestamp is None:
                     self.game_over_timestamp = time.time()
@@ -468,12 +474,35 @@ class RoomServer:
             response = requests.post(url, timeout=2) 
             
             if response.status_code == 200:
-                print(f"[+] Hub notified successfully.")
+                print(f"[+] Hub notified successfully (start).")
             else:
                 print(f"[!] Hub notification failed with status: {response.status_code}. Ignoring.")
                 
         except Exception as e:
             print(f"[!] Error notifying Hub: {e}. Ignoring.")
+
+    def _notify_hub_game_close(self):
+        """Notifies the Hub Server that the game has ended. Attempts only once."""
+        if self.game_over_notified:
+            return
+
+        print(f"[*] Game Over! Notifying Hub at {self.hub_api_url}...")
+        
+        # Mark as notified immediately to prevent retries on failure
+        self.game_over_notified = True 
+        
+        try:
+            url = f"{self.hub_api_url}/room/{self.room_id}/close"
+            # Short timeout to avoid blocking the game loop for too long
+            response = requests.post(url, timeout=2) 
+            
+            if response.status_code == 200:
+                print(f"[+] Hub notified successfully (close).")
+            else:
+                print(f"[!] Hub notification (close) failed with status: {response.status_code}. Ignoring.")
+                
+        except Exception as e:
+            print(f"[!] Error notifying Hub (close): {e}. Ignoring.")
 
 
 if __name__ == "__main__":
