@@ -3,12 +3,15 @@ import bomberman.room_server.GameEngine as game_engine
 from bomberman.room_server.gossip import bomberman_pb2
 from bomberman.room_server.NetworkUtils import send_msg, recv_msg
 from bomberman.room_server.GameStatePersistence import *
+import time
 import socket
 import threading
+import sys
 
 HOST = "0.0.0.0"
 PORT = 5000
 MAX_CONNECTIONS = 4  # Maximum number of concurrent player connections
+GAME_OVER_RESTART_INTERVAL = 5.0  # Seconds to wait before restart
 
 
 class RoomServer:
@@ -44,6 +47,9 @@ class RoomServer:
         
         # Autosave tracking
         self.ticks_since_save = 0
+        
+        # Restart tracking
+        self.game_over_timestamp = None
         
         # Expected players (for reconnection tracking)
         self.expected_players = set(p.id for p in self.engine.players) if self.is_resumed_game else set()
@@ -103,9 +109,43 @@ class RoomServer:
 
         # Close server socket
         self.server_socket.close()
-
-        import sys
         sys.exit(0)
+
+    def _restart_game(self):
+        """
+        Reset the game server to a fresh state.
+        Disconnect all current players.
+        """
+        print("[*] Restarting server - flushing all connections...")
+        
+        # Send reset notification to all clients before disconnecting them
+        reset_packet = bomberman_pb2.Packet()
+        reset_packet.server_response.success = False
+        reset_packet.server_response.message = "SERVER_RESET"
+        reset_data = reset_packet.SerializeToString()
+        
+        with self.clients_lock:
+            for player_id, sock in list(self.clients.items()):
+                try:
+                    send_msg(sock, reset_data)
+                    time.sleep(0.1)  # Give client time to receive the message
+                    sock.close()
+                except:
+                    pass
+            self.clients.clear()
+        
+        # Create a new game engine
+        self.engine = game_engine.GameEngine(seed=None)
+        
+        # Reset state flags
+        self.ticks_since_save = 0
+        self.game_over_timestamp = None
+        self.is_resumed_game = False
+        self.expected_players.clear()
+        
+        # Delete the old save file
+        GameStatePersistence.delete_save_file()
+        print("[*] Server reset complete. Waiting for new players...")
 
     def handle_client(self, client_socket, addr):
         player_id = None
@@ -245,7 +285,10 @@ class RoomServer:
         response_packet.server_response.success = success
         response_packet.server_response.message = message
         response_packet.server_response.tick_rate = self.engine.tick_rate
-        send_msg(client_socket, response_packet.SerializeToString())
+        try:
+            send_msg(client_socket, response_packet.SerializeToString())
+        except:
+            pass
 
     def _send_game_state(self, client_socket):
         """Send current game state to a specific client."""
@@ -266,26 +309,26 @@ class RoomServer:
         while self.running:
             start_time = time.time()
 
+            # Handle game over and restart
+            if self.engine.state == game_engine.GameState.GAME_OVER:
+                # If game over delete save and restart timer
+                if self.game_over_timestamp is None:
+                    self.game_over_timestamp = time.time()
+                    GameStatePersistence.delete_save_file()
+                
+                # Wait before restarting
+                elif time.time() - self.game_over_timestamp > GAME_OVER_RESTART_INTERVAL:
+                    self._restart_game()
+                    continue 
+
             # Check reconnection deadline for resumed games
             if self.is_resumed_game and self.reconnection_deadline:
                 if time.time() > self.reconnection_deadline:
                     if self.expected_players:
                         print(f"[!] Reconnection timeout. {len(self.expected_players)} players didn't reconnect.")
                         print(f"[!] Starting fresh game...")
-                        
-                        # Reset to fresh game
-                        self.engine = game_engine.GameEngine(seed=42)
-                        self.expected_players.clear()
-                        GameStatePersistence.delete_save_file()
-                        
-                        # Disconnect all current clients
-                        with self.clients_lock:
-                            for player_id, sock in list(self.clients.items()):
-                                try:
-                                    sock.close()
-                                except:
-                                    pass
-                            self.clients.clear()
+                        self._restart_game() 
+                        continue
                     
                     self.is_resumed_game = False
                     self.reconnection_deadline = None
@@ -309,10 +352,6 @@ class RoomServer:
             if self.engine.state == game_engine.GameState.IN_PROGRESS and self.ticks_since_save >= AUTOSAVE_INTERVAL:
                 GameStatePersistence.save_game_state(self.engine)
                 self.ticks_since_save = 0
-
-            # Delete save file when game ends
-            if self.engine.state == game_engine.GameState.GAME_OVER:
-                GameStatePersistence.delete_save_file()
 
             # Maintain tick rate
             elapsed = time.time() - start_time

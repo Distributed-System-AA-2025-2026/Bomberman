@@ -23,6 +23,7 @@ class GameClient:
         self.reconnection_attempts = 0
         self.max_reconnection_time = SERVER_RECONNECTION_TIMEOUT
         self.reconnection_start_time = None
+        self.server_reset_detected = False  # Track if server is resetting
 
         # Force Windows terminal to interpret ANSI escape codes
         if os.name == 'nt':
@@ -62,6 +63,7 @@ class GameClient:
                 self.is_connected = True
                 self.reconnection_attempts = 0
                 self.reconnection_start_time = None
+                self.server_reset_detected = False  # Reset the flag on successful connection
                 
                 return True
             return False
@@ -72,6 +74,12 @@ class GameClient:
 
     def attempt_reconnection(self) -> bool:
         """Try to reconnect to the server within the timeout window. Returns True on success, False on timeout."""
+        # Server reset detected, do not attempt reconnection
+        if self.server_reset_detected:
+            print("[!] Server is resetting. Exiting...")
+            self.running = False
+            return False
+        
         if self.reconnection_start_time is None:
             self.reconnection_start_time = time.time()
         
@@ -125,12 +133,19 @@ class GameClient:
 
                     # Handle server response (disconnect notifications, etc)
                     if packet.HasField('server_response'):
+                        # Check for server reset notification
+                        if packet.server_response.message == "SERVER_RESET":
+                            print("\n" + "="*60)
+                            print("[!] SERVER IS RESTARTING - GAME RESET")
+                            print("[!] Please restart your client to join the new game if you wish to play again.")
+                            print("="*60)
+                            self.server_reset_detected = True
+                            self.running = False
+                            continue
+                        
                         if not packet.server_response.success:
                             if self.running:
                                 print(f"\n[!] Server message: {packet.server_response.message}")
-                                if "reset" in packet.server_response.message.lower():
-                                    print("[!] Game was reset. Exiting...")
-                                    self.running = False
                             continue
 
                     if packet.HasField('state_snapshot'):
@@ -140,7 +155,9 @@ class GameClient:
                 except (ConnectionResetError, BrokenPipeError, OSError) as e:
                     if self.running:  # Only print if still running
                         print(f"\n[!] Connection lost: {e}")
-                        print(f"[*] Will attempt reconnection for {self.max_reconnection_time}s...")
+                        # Only print reconnection message when server is not resetting
+                        if not self.server_reset_detected:
+                            print(f"[*] Will attempt reconnection for {self.max_reconnection_time}s...")
                     self.is_connected = False
                     
         except Exception as e:
@@ -156,8 +173,7 @@ class GameClient:
         output_buffer = output_buffer.replace("\n", "\n\033[K") # Clear to end of line after each line
         
         if snapshot.is_game_over:
-            output_buffer += "\nGAME OVER\n"
-            self.running = False
+            output_buffer += "\nGAME OVER - SERVER WILL RESET SOON...\n"
         else:
             status = "[ONLINE]" if self.is_connected else "[RECONNECTING...]"
             output_buffer += f"Player: {self.player_id} | {status} | Controls: WASD (Move), E (Bomb), Q (Quit)\n"
@@ -180,7 +196,8 @@ class GameClient:
             send_msg(self.sock, packet.SerializeToString())
         except (BrokenPipeError, OSError):
             self.is_connected = False
-            print("\n[!] Failed to send action - connection lost")
+            if not self.server_reset_detected:
+                print("\n[!] Failed to send action - connection lost")
 
     def start(self):
         """Start the game client."""
