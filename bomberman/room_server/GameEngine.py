@@ -291,6 +291,18 @@ class GameEngine:
     def add_player(self, player_id: str, verbose: bool = True) -> Player:
         """Add a new player to the game at the specified position, only in WAITING_FOR_PLAYERS state."""
 
+        # Player ID must be a non-null and non-empty string
+        if not isinstance(player_id, str) or not player_id.strip():
+            raise ValueError("Player ID must be a non-empty string.")
+
+        # Player ID has to have a unique first letter for different ASCII representations
+        new_player_initial = player_id[0]
+        for p in self.players:
+            if p.id[0] == new_player_initial:
+                raise ValueError(
+                    f"Invalid Player ID '{player_id}': The initial '{new_player_initial}' is already in use by player '{p.id}'."
+                )
+
         # Check game state
         if self.state != GameState.WAITING_FOR_PLAYERS:
             raise ValueError(
@@ -328,7 +340,7 @@ class GameEngine:
             self.start_game()
 
         return new_player
-
+    
     def remove_player(self, player_id: str, verbose: bool = True) -> None:
         """Remove a player from the game by ID and free up their spawn point, only in WAITING_FOR_PLAYERS state."""
 
