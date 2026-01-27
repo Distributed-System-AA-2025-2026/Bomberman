@@ -9,6 +9,12 @@ import threading
 import sys
 from fastapi import FastAPI 
 import uvicorn
+import requests
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file 
+load_dotenv()
 
 HOST = "0.0.0.0"
 PORT = 5000
@@ -33,6 +39,19 @@ class RoomServer:
     def __init__(self):
         global server_instance
         server_instance = self  # Set global reference
+
+        # Hub API Configuration
+        # Read from environment variables, hubs already set these when creating the room pods
+        self.room_id = os.environ.get("ROOM_ID", "hub0-0")
+        self.hub_api_url = os.environ.get(
+            "HUB_API_URL", 
+            f"https://bomberman.romanellas.cloud"
+        )
+
+        print(f"[*] Hub API URL: {self.hub_api_url}")
+        print(f"[*] Room ID: {self.room_id}")
+        
+        self.game_started_notified = False
 
         # Try to load saved game state
         loaded_state = GameStatePersistence.load_game_state()
@@ -169,6 +188,7 @@ class RoomServer:
         self.game_over_timestamp = None
         self.is_resumed_game = False
         self.expected_players.clear()
+        self.game_started_notified = False
         
         # Delete the old save file
         GameStatePersistence.delete_save_file()
@@ -371,6 +391,10 @@ class RoomServer:
             # Tick the game engine
             self.engine.tick(verbose=False, actions=list(actions_to_process.values()))
 
+            # Check if game started, notify hub if not done already
+            if self.engine.state == game_engine.GameState.IN_PROGRESS and not self.game_started_notified:
+                self._notify_hub_game_start()
+
             # Broadcast game state to all clients
             self.broadcast_game()
 
@@ -425,6 +449,29 @@ class RoomServer:
         elif action_type == bomberman_pb2.GameAction.STAY:
             return game_engine.STAY()
         return None
+    
+    def _notify_hub_game_start(self):
+        """Notifies the Hub Server that the game has started. Attempts only once, hubs already have a fallback mechanism for this."""
+        if self.game_started_notified:
+            return
+
+        print(f"[*] Game started! Notifying Hub at {self.hub_api_url}...")
+        
+        # Mark as notified immediately (or in finally) to prevent retries on failure
+        self.game_started_notified = True 
+        
+        try:
+            url = f"{self.hub_api_url}/room/{self.room_id}/start"
+            # Short timeout to avoid blocking the game loop for too long
+            response = requests.post(url, timeout=2) 
+            
+            if response.status_code == 200:
+                print(f"[+] Hub notified successfully.")
+            else:
+                print(f"[!] Hub notification failed with status: {response.status_code}. Ignoring.")
+                
+        except Exception as e:
+            print(f"[!] Error notifying Hub: {e}. Ignoring.")
 
 
 if __name__ == "__main__":
