@@ -5,8 +5,8 @@ import os
 import time
 from gossip import bomberman_pb2
 from NetworkUtils import send_msg, recv_msg
-from GameInputHelper import RealTimeInput
-from GameStatePersistence import SERVER_RECONNECTION_TIMEOUT
+from bomberman.room_server.GameInputHelper import RealTimeInput
+from bomberman.room_server.GameStatePersistence import SERVER_RECONNECTION_TIMEOUT
 
 HOST = '127.0.0.1'
 PORT = 5000
