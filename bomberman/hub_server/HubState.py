@@ -48,7 +48,8 @@ class HubState:
                 return self._peers[required_peer]
             return None
 
-    def execute_heartbeat_check(self, origin_index: int, received_heart_beat: int, is_peer_leaving: bool = False) -> bool:
+    def execute_heartbeat_check(self, origin_index: int, received_heart_beat: int,
+                                is_peer_leaving: bool = False) -> bool:
         """
         Aggiorna l'heartbeat di un peer se quello ricevuto è più recente.
 
@@ -93,7 +94,7 @@ class HubState:
                 raise ValueError
             peer.status = 'dead'
 
-    def get_all_not_dead_peers(self, exclude_peers : int = -1) -> list[HubPeer]:
+    def get_all_not_dead_peers(self, exclude_peers: int = -1) -> list[HubPeer]:
         """ Return a list of not dead peers (alive or suspected)"""
         with self._lock:
             return list(filter(
@@ -159,3 +160,9 @@ class HubState:
             room = self._known_rooms.get(room_id)
             if room is not None:
                 room.status = status
+
+    def remove_room(self, room_id: str) -> None:
+        """Rimuove una room dallo state."""
+        with self._lock:
+            if room_id in self._known_rooms:
+                del self._known_rooms[room_id]
