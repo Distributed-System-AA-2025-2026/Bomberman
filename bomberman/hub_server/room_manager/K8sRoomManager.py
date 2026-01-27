@@ -60,6 +60,11 @@ class K8sRoomManager(RoomManagerBase):
             return None
 
     def _create_room_pod(self, room_id: str) -> None:
+        # Construct the Hub API URL for the room to connect back
+        if os.environ.get("DISCOVERY_MODE") == "k8s":
+            hub_api_url = f"http://localhost:8000"
+        else:
+            hub_api_url = f"https://bomberman.romanellas.cloud"
         pod = client.V1Pod(
             metadata=client.V1ObjectMeta(
                 name=f"room-{room_id}",
@@ -83,6 +88,7 @@ class K8sRoomManager(RoomManagerBase):
                         env=[
                             client.V1EnvVar(name="ROOM_ID", value=room_id),
                             client.V1EnvVar(name="OWNER_HUB", value=str(self._hub_index)),
+                            client.V1EnvVar(name="HUB_API_URL", value=hub_api_url)
                         ],
                         resources=client.V1ResourceRequirements(
                             requests={"memory": "64Mi", "cpu": "100m"},
