@@ -41,10 +41,23 @@ class K8sRoomManager(RoomManagerBase):
         return f"hub{self._hub_index}-{room_index}"
 
     def initialize_pool(self) -> None:
+        self._cleanup_orphan_rooms()
         print_console(f"Initializing K8s room pool with {self.STARTING_POOL_SIZE} room(s)")
         for i in range(self.STARTING_POOL_SIZE):
             self._create_and_register_room(i)
         self._last_used_room_index = max(self.STARTING_POOL_SIZE - 1, 0)
+
+    def _cleanup_orphan_rooms(self) -> None:
+        """Elimina room orfane di questo hub."""
+        pods = self._k8s_core.list_namespaced_pod(
+            namespace=self._namespace,
+            label_selector=f"app=room,owner-hub={self._hub_index}"
+        )
+        for pod in pods.items:
+            room_id = pod.metadata.labels.get("room-id")
+            if room_id:
+                self._delete_room(room_id)
+                print_console(f"Cleaned orphan room {room_id}")
 
     def _get_next_room_index(self) -> int:
         self._last_used_room_index = self._last_used_room_index + 1
