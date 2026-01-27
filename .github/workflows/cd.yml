@@ -15,7 +15,6 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    # Esegui se: CI success + push, OPPURE dispatch manuale
     if: >-
       ${{
         (github.event.workflow_run.conclusion == 'success' &&
@@ -42,6 +41,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # === HUB SERVER ===
       - name: Extract metadata (Hub)
         id: meta-hub
         uses: docker/metadata-action@v5
@@ -62,6 +62,27 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # === ROOM SERVER ===
+      - name: Extract metadata (Room)
+        id: meta-room
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ROOM }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=,format=short
+
+      - name: Build and push Room image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.room
+          push: true
+          tags: ${{ steps.meta-room.outputs.tags }}
+          labels: ${{ steps.meta-room.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   deploy:
     needs: build-and-push
     runs-on: self-hosted
@@ -69,27 +90,32 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME_HUB: distributed-system-aa-2025-2026/bomberman-hub
+      IMAGE_NAME_ROOM: distributed-system-aa-2025-2026/bomberman-room
 
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Pull image from GHCR
+      - name: Pull images from GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_HUB }}:latest
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ROOM }}:latest
 
-      - name: Import and tag image in microk8s
+      - name: Import and tag images in microk8s
         run: |
-          # Prima importa
+          # Hub Server
           docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_HUB }}:latest | microk8s ctr image import -
-          # Rimuovi tag vecchio se esiste
           microk8s ctr images rm docker.io/library/bomberman-hub:latest || true
-          # Poi tagga
           microk8s ctr images tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_HUB }}:latest docker.io/library/bomberman-hub:latest
+          
+          # Room Server
+          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ROOM }}:latest | microk8s ctr image import -
+          microk8s ctr images rm docker.io/library/bomberman-room:latest || true
+          microk8s ctr images tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ROOM }}:latest docker.io/library/bomberman-room:latest
 
-      - name: Deploy to microk8s
+      - name: Deploy Hub to microk8s
         run: |
           microk8s kubectl apply -f k8s/base/namespace.yaml
           microk8s kubectl apply -f k8s/base/hub/configmap.yaml
