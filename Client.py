@@ -3,19 +3,21 @@ import threading
 import sys
 import os
 import time
-from gossip import bomberman_pb2
-from NetworkUtils import send_msg, recv_msg
+import requests
+from bomberman.room_server.gossip import bomberman_pb2
+from bomberman.room_server.NetworkUtils import send_msg, recv_msg
 from bomberman.room_server.GameInputHelper import RealTimeInput
 from bomberman.room_server.GameStatePersistence import SERVER_RECONNECTION_TIMEOUT
 
-HOST = 'bomberman.romanellas.cloud'  # Server address
-PORT = 32612
+MATCHMAKING_URL = "https://bomberman.romanellas.cloud/matchmaking"
 RECONNECT_INTERVAL = 2  # Seconds between reconnection attempts
 
 
 class GameClient:
-    def __init__(self, player_id):
+    def __init__(self, player_id, server_host, server_port):
         self.player_id = player_id
+        self.server_host = server_host
+        self.server_port = server_port
         self.sock = None
         self.running = True
         self.tick_rate = 10  # Default, will be updated by server on connection
@@ -34,9 +36,12 @@ class GameClient:
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # Create IPv4 TCP socket
             self.sock.settimeout(5.0)  # 5 second timeout for connection
-            self.sock.connect((HOST, PORT))
+            
+            # Use the dynamic host and port from matchmaking
+            self.sock.connect((self.server_host, self.server_port))
+            
             self.sock.settimeout(None)  # Remove timeout after connection
-            print(f"[*] Connected to {HOST}:{PORT}")
+            print(f"[*] Connected to {self.server_host}:{self.server_port}")
             
             # Send Join Request
             packet = bomberman_pb2.Packet()
@@ -261,9 +266,33 @@ class GameClient:
 
 if __name__ == "__main__":
     player_name = input("Enter Player ID: ")
-    client = GameClient(player_name)
+    
+    # Matchmaking
+    try:
+        print("[*] Contacting Matchmaking Server...")
+        response = requests.post(MATCHMAKING_URL)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        if data.get("request_code") != 200:
+            print(f"[!] Matchmaking failed: {data.get('request_message')}")
+            sys.exit(1)
+            
+        target_host = data["room_address"]
+        target_port = data["room_port"]
+        target_room_id = data["room_id"]
+        
+        print(f"[*] Match found! Room: {target_room_id}")
+        print(f"[*] Connecting to {target_host}:{target_port}...")
+        
+    except Exception as e:
+        print(f"[!] Error during matchmaking: {e}")
+        sys.exit(1)
+
+    client = GameClient(player_name, target_host, target_port)
     
     if client.connect():
         client.start()
     else:
-        print("[!] Could not connect to server. Exiting...")
+        print("[!] Could not connect to game server. Exiting...")
