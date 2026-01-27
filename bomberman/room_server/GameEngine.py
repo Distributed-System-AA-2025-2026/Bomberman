@@ -10,6 +10,7 @@ from typing import List, Dict, Optional, Tuple
 TICK_RATE = 10  # Ticks per second, so 1 tick = 0.1 seconds
 BOMB_TIMER_SEC = 2.0  # Seconds will be translated to ticks
 EXPLOSION_DURATION_SEC = 1.0  # Seconds will be translated to ticks
+EXPLOSION_VISUAL_TICKS = 5 # Ticks the explosion tile stays on screen
 BOMB_RANGE = 2  # Tiles
 MAX_TIME_TO_WAIT_FOR_PLAYERS_DURING_WAITING_STATE = 30  # Seconds
 
@@ -29,6 +30,7 @@ class TileType(Enum):
     WALL_BREAKABLE = 2
     SPAWN_POINT = 3
     BOMB = 4
+    EXPLOSION = 5
 
 
 TILE_PROPERTIES = {
@@ -38,6 +40,7 @@ TILE_PROPERTIES = {
     TileType.WALL_BREAKABLE: {"walkable": False, "symbol": "+"},
     TileType.SPAWN_POINT: {"walkable": True, "symbol": "S"},
     TileType.BOMB: {"walkable": True, "symbol": "@"},
+    TileType.EXPLOSION: {"walkable": True, "symbol": "*"},
 }
 
 # Reverse lookup for parsing levels
@@ -135,6 +138,7 @@ class GameEngine:
     players: List[Player] = field(default_factory=list)
     bombs: List[Bomb] = field(default_factory=list)
     free_spawn_points: List[Position] = field(default_factory=list)
+    explosion_timers: Dict[Tuple[int, int], int] = field(default_factory=dict)
     current_tick: int
     tick_rate: int = TICK_RATE
     seed: int
@@ -145,6 +149,7 @@ class GameEngine:
         self.grid, self.width, self.height, self.free_spawn_points = self._initialize_grid()
         self.players = []
         self.bombs = []
+        self.explosion_timers = {} # Tracks (x, y) -> ticks_remaining
         self.current_tick = 0
         self.state = GameState.WAITING_FOR_PLAYERS
         self.winner = None
@@ -436,6 +441,11 @@ class GameEngine:
 
         # Explosion logic
         affected_positions = [bomb.position]
+
+        # Set the bomb's center position to EXPLOSION
+        self.grid[bomb.position.y][bomb.position.x] = TileType.EXPLOSION
+        self.explosion_timers[(bomb.position.x, bomb.position.y)] = EXPLOSION_VISUAL_TICKS
+
         # Add positions in all four directions based on bomb range
         for direction in [Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT]:
             for r in range(1, bomb.range + 1):
@@ -449,11 +459,15 @@ class GameEngine:
                 target_tile = self.grid[new_y][new_x]
                 if target_tile == TileType.WALL_UNBREAKABLE:
                     break  # Stop explosion in this direction
+                
                 affected_positions.append(Position(new_x, new_y))
+
+                # Update Grid for visual explosion
+                self.grid[new_y][new_x] = TileType.EXPLOSION
+                self.explosion_timers[(new_x, new_y)] = EXPLOSION_VISUAL_TICKS
 
                 if target_tile == TileType.WALL_BREAKABLE:
                     # Destroy the breakable wall
-                    self.grid[new_y][new_x] = TileType.EMPTY
                     break  # Stop explosion in this direction
 
         # Check for players in affected positions
@@ -546,6 +560,18 @@ class GameEngine:
             bomb.decrease_timer()
             if bomb.timer <= 0:
                 self.explode_bomb(bomb, verbose)
+
+        # Update explosions
+        positions_to_clear = []
+        for pos, timer in self.explosion_timers.items():
+            self.explosion_timers[pos] -= 1
+            if self.explosion_timers[pos] <= 0:
+                positions_to_clear.append(pos)
+        
+        for x, y in positions_to_clear:
+            del self.explosion_timers[(x, y)]
+            if self.grid[y][x] == TileType.EXPLOSION:
+                self.grid[y][x] = TileType.EMPTY
 
         # Check for win condition
         self.check_game_over(verbose)
