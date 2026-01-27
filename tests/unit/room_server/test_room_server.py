@@ -557,7 +557,7 @@ class TestGameLoop(unittest.TestCase):
         """Test that game loop autosaves at correct intervals"""
         server = RoomServer()
         server.engine.state = GameState.IN_PROGRESS
-        server.ticks_since_save = 0  # One tick away from autosave (5 is the interval)
+        server.ticks_since_save = 4  # One tick away from autosave (5 is the interval)
 
         # Reset the mock to ensure clean state after server creation
         self.mock_persistence.save_game_state.reset_mock()
