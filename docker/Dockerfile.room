@@ -21,6 +21,8 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --chown=bomberman:bomberman ./bomberman ./bomberman
 
+RUN chown bomberman:bomberman /app
+
 USER bomberman
 
 ENV PYTHONPATH=/app

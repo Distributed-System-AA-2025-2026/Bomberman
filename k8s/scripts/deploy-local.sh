@@ -28,55 +28,76 @@ fi
 echo -e "${GREEN}[OK] Microk8s ready${NC}\n"
 
 # Variabili
-IMAGE_NAME="bomberman-hub"
+HUB_IMAGE_NAME="bomberman-hub"
+ROOM_IMAGE_NAME="bomberman-room"
 IMAGE_TAG="latest"
 
-echo -e "${YELLOW}--- Step 1: Building Docker image ---${NC}"
-echo -e "${BLUE}Image: ${IMAGE_NAME}:${IMAGE_TAG}${NC}\n"
+echo -e "${YELLOW}--- Step 1: Building Docker images ---${NC}"
 
-# Build immagine localmente
-docker build -t "${IMAGE_NAME}:${IMAGE_TAG}" -f docker/Dockerfile.hub .
+# Build Hub
+echo -e "${BLUE}Building Hub image: ${HUB_IMAGE_NAME}:${IMAGE_TAG}${NC}"
+docker build -t "${HUB_IMAGE_NAME}:${IMAGE_TAG}" -f docker/Dockerfile.hub .
 
 if [ $? -ne 0 ]; then
-    echo -e "${RED}[ERROR] Docker build failed${NC}"
+    echo -e "${RED}[ERROR] Hub Docker build failed${NC}"
+    exit 1
+fi
+echo -e "${GREEN}[OK] Hub image built${NC}\n"
+
+# Build Room
+echo -e "${BLUE}Building Room image: ${ROOM_IMAGE_NAME}:${IMAGE_TAG}${NC}"
+docker build -t "${ROOM_IMAGE_NAME}:${IMAGE_TAG}" -f docker/Dockerfile.room .
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}[ERROR] Room Docker build failed${NC}"
+    exit 1
+fi
+echo -e "${GREEN}[OK] Room image built${NC}\n"
+
+# Importa le immagini in microk8s
+echo -e "${YELLOW}--- Step 2: Importing images to microk8s ---${NC}"
+
+echo -e "${BLUE}Importing Hub image...${NC}"
+docker save "${HUB_IMAGE_NAME}:${IMAGE_TAG}" | microk8s ctr image import -
+if [ $? -ne 0 ]; then
+    echo -e "${RED}[ERROR] Hub image import failed${NC}"
     exit 1
 fi
 
-# Importa l'immagine direttamente in microk8s
-echo -e "\n${YELLOW}Importing image to microk8s...${NC}"
-docker save "${IMAGE_NAME}:${IMAGE_TAG}" | microk8s ctr image import -
-
+echo -e "${BLUE}Importing Room image...${NC}"
+docker save "${ROOM_IMAGE_NAME}:${IMAGE_TAG}" | microk8s ctr image import -
 if [ $? -ne 0 ]; then
-    echo -e "${RED}[ERROR] Image import failed${NC}"
+    echo -e "${RED}[ERROR] Room image import failed${NC}"
     exit 1
 fi
 
-# Verifica che l'immagine sia presente (più permissivo)
-echo -e "${BLUE}Verifying image...${NC}"
-echo -e "${BLUE}Available images:${NC}"
+# Verifica immagini
+echo -e "${BLUE}Verifying images...${NC}"
 microk8s ctr images ls | grep -i bomberman || true
+echo -e "${GREEN}[OK] Images imported${NC}\n"
 
-# Non usciamo se il grep fallisce, l'immagine c'e' comunque
-echo -e "${GREEN}[OK] Image imported${NC}\n"
-
-echo -e "${YELLOW}--- Step 2: Creating namespace ---${NC}"
+echo -e "${YELLOW}--- Step 3: Creating namespace ---${NC}"
 microk8s kubectl apply -f k8s/base/namespace.yaml
 echo -e "${GREEN}[OK] Namespace created${NC}\n"
 
-echo -e "${YELLOW}--- Step 3: Applying ConfigMap ---${NC}"
+echo -e "${YELLOW}--- Step 4: Applying ConfigMap ---${NC}"
 microk8s kubectl apply -f k8s/base/hub/configmap.yaml
 echo -e "${GREEN}[OK] ConfigMap applied${NC}\n"
 
-echo -e "${YELLOW}--- Step 4: Deploying Hub StatefulSet ---${NC}"
+echo -e "${YELLOW}--- Step 5: Applying RBAC ---${NC}"
+microk8s kubectl apply -f k8s/base/hub/rbac.yaml
+echo -e "${GREEN}[OK] RBAC applied${NC}\n"
+
+echo -e "${YELLOW}--- Step 6: Deploying Hub StatefulSet ---${NC}"
 microk8s kubectl apply -f k8s/base/hub/statefulset.yaml
 microk8s kubectl apply -f k8s/base/hub/service.yaml
 echo -e "${GREEN}[OK] Hub deployed${NC}\n"
 
-echo -e "${YELLOW}--- Step 5: Deploying Ingress ---${NC}"
+echo -e "${YELLOW}--- Step 7: Deploying Ingress ---${NC}"
 microk8s kubectl apply -f k8s/base/hub/ingress.yaml
 echo -e "${GREEN}[OK] Ingress deployed${NC}\n"
 
-echo -e "${YELLOW}--- Step 6: Waiting for pods ---${NC}"
+echo -e "${YELLOW}--- Step 8: Waiting for pods ---${NC}"
 echo "This may take a minute..."
 
 # Attendi che i pod siano ready (con timeout più lungo)
@@ -145,3 +166,7 @@ echo -e "   microk8s dashboard-proxy\n"
 echo -e "${BLUE}Access via Ingress:${NC}"
 echo -e "   curl http://hub.bomberman.local/health"
 echo -e "   curl http://hub.bomberman.local/debug/\n"
+
+echo -e "${BLUE}Note:${NC}"
+echo -e "   Room pods are spawned dynamically by Hub when needed."
+echo -e "   Room image (${ROOM_IMAGE_NAME}:${IMAGE_TAG}) is pre-loaded and ready.\n"

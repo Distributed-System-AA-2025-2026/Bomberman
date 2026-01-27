@@ -90,7 +90,7 @@ class K8sRoomManager(RoomManagerBase):
                         )
                     )
                 ],
-                restart_policy="Never"
+                restart_policy="OnFailure"
             )
         )
         self._k8s_core.create_namespaced_pod(namespace=self._namespace, body=pod)
