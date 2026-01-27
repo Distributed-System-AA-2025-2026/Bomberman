@@ -9,7 +9,7 @@ from bomberman.room_server.GameInputHelper import RealTimeInput
 from bomberman.room_server.GameStatePersistence import SERVER_RECONNECTION_TIMEOUT
 
 HOST = 'hub.bomberman.local'
-PORT = 31095
+PORT = 31750
 RECONNECT_INTERVAL = 2  # Seconds between reconnection attempts
 
 

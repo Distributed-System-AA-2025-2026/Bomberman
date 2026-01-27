@@ -282,9 +282,9 @@ class TestK8sRoomManagerCreateRoomPod:
 
         container = pod_spec.spec.containers[0]
         assert container.name == "room"
-        assert container.image == "httpd:2.4"
+        assert container.image == "docker.io/library/bomberman-room:latest"
         assert len(container.ports) == 1
-        assert container.ports[0].container_port == 80
+        assert container.ports[0].container_port == 5000
 
         # Check environment variables
         env_dict = {env.name: env.value for env in container.env}
@@ -335,8 +335,8 @@ class TestK8sRoomManagerCreateRoomService:
         assert service_spec.spec.selector == {"room-id": "room-abc"}
 
         port_spec = service_spec.spec.ports[0]
-        assert port_spec.port == 80
-        assert port_spec.target_port == 80
+        assert port_spec.port == 5000
+        assert port_spec.target_port == 5000
 
 
 class TestK8sRoomManagerDeleteRoom:
