@@ -213,6 +213,7 @@ class K8sRoomManager(RoomManagerBase):
             )
         except Exception as e:
             print_console(f"Failed to delete room {room_id}: {e}", "Error")
+        sleep(10)
 
     def get_room_address(self, room: Room) -> str:
         return self._external_address
