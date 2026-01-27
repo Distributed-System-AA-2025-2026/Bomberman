@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-tcp-proxy
+  namespace: bomberman
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-tcp-proxy
+  template:
+    metadata:
+      labels:
+        app: nginx-tcp-proxy
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:latest
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: config
+          configMap:
+            name: nginx-tcp-config

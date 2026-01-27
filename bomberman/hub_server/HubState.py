@@ -1,19 +1,22 @@
 import time
 import threading
-from multiprocessing.managers import Value
 from typing import Literal
 
 from bomberman.hub_server.HubPeer import HubPeer
 from bomberman.common.ServerReference import ServerReference
+from bomberman.hub_server.Room import Room
+from bomberman.common.RoomState import RoomStatus
 
 
 class HubState:
     _peers: list[HubPeer | None]
+    _known_rooms: dict[str, Room]
     _lock: threading.RLock
 
     def __init__(self):
         self._lock = threading.RLock()
         self._peers = []
+        self._known_rooms = {}
 
     def add_peer(self, peer: HubPeer) -> None:
         with self._lock:
@@ -52,6 +55,7 @@ class HubState:
         Args:
             origin_index: Indice del peer (es. 0 per hub-0)
             received_heart_beat: Valore dell'heartbeat ricevuto nel messaggio
+            is_peer_leaving: Indica se il peer sta uscendo dal gossip protocol
 
         Returns:
             True se l'heartbeat è stato aggiornato (era più recente),
@@ -129,3 +133,29 @@ class HubState:
             if peer is not None:
                 peer.last_seen = time.time()
                 peer.status = 'alive'
+
+    def add_room(self, room: Room) -> None:
+        with self._lock:
+            self._known_rooms[room.room_id] = room
+
+    def get_room(self, room_id: str) -> Room | None:
+        with self._lock:
+            return self._known_rooms.get(room_id)
+
+    def get_active_room(self) -> Room | None:
+        """Ritorna una room attiva e joinable"""
+        with self._lock:
+            for room in self._known_rooms.values():
+                if room.is_joinable:
+                    return room
+            return None
+
+    def get_all_rooms(self) -> list[Room]:
+        with self._lock:
+            return list(self._known_rooms.values())
+
+    def set_room_status(self, room_id: str, status: RoomStatus) -> None:
+        with self._lock:
+            room = self._known_rooms.get(room_id)
+            if room is not None:
+                room.status = status

@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hub-config
+  namespace: bomberman
+data:
+  # HubServer configuration
+  HUB_DISCOVERY_MODE: "k8s"
+  FAILURE_DETECTOR_CHECK_INTERVAL: "1"
+  FAILURE_DETECTOR_SUSPECT_TIMEOUT: "5"
+  FAILURE_DETECTOR_DEAD_TIMEOUT: "20"
+  FANOUT: "4"
+
+  # ports
+  HTTP_PORT: "8000"
+  GOSSIP_PORT: "9000"
+
+  # Service name for FQDN
+  SERVICE_NAME: "hub-service"
+  EXPECTED_HUB_COUNT: "16"

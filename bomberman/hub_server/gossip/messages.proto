@@ -15,6 +15,7 @@ enum EventType {
     //Room events
     ROOM_ACTIVATED = 10; //When a room started accepting players
     ROOM_STARTED = 11; //When a room started a game
+    ROOM_CLOSED = 12;
 }
 
 message GossipMessage {
@@ -31,7 +32,8 @@ message GossipMessage {
         PeerSuspiciousPayload peer_suspicious = 13;
         PeerDeadPayload peer_dead = 14;
         RoomActivatedPayload room_activated = 15;
-        RoomClosedPayload room_closed = 16;
+        RoomStartedPayload room_started = 16;
+        RoomClosedPayload room_closed = 17;
     }
 
     // Payload specifico (oneof = un solo campo alla volta)
@@ -66,10 +68,17 @@ message PeerDeadPayload {
     int32 dead_peer = 1;
 }
 
+message RoomStartedPayload {
+    string room_id = 1;
+}
+
 message RoomActivatedPayload {
-    int32 room_id = 1;
+    string room_id = 1;
+    int32 owner_hub = 2;
+    int32 external_port = 3;
+    string external_address = 4;
 }
 
 message RoomClosedPayload {
-    int32 room_id = 1;
+    string room_id = 1;
 }

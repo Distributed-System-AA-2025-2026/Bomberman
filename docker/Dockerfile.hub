@@ -1,0 +1,43 @@
+# Stage 1: Builder
+FROM python:3.11-slim AS builder
+
+# Installa poetry
+RUN pip install --no-cache-dir poetry==1.7.1
+
+WORKDIR /app
+
+# Configura poetry
+RUN poetry config virtualenvs.create false
+
+# Copia file di configurazione
+COPY pyproject.toml poetry.lock ./
+
+# Installa solo dipendenze runtime
+RUN poetry install --only main --no-root --no-interaction --no-ansi
+
+# Stage 2: Runtime
+FROM python:3.11-slim
+
+# Crea utente non-root
+RUN useradd -m -u 1000 bomberman
+
+WORKDIR /app
+
+# Copia dipendenze dal builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+
+# Copia codice applicazione
+COPY --chown=bomberman:bomberman ./bomberman ./bomberman
+
+# Switch a utente non-root
+USER bomberman
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD python -c "import socket; s=socket.socket(); s.connect(('localhost', 8000)); s.close()" || exit 1
+
+# Esponi porte
+EXPOSE 8000 9000/udp
+
+# Entry point
+CMD ["python", "-m", "bomberman.hub_server"]
