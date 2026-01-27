@@ -41,13 +41,11 @@ class RoomServer:
         server_instance = self  # Set global reference
 
         # Hub API Configuration
-        # Read from environment variables
+        # Read from environment variables, hubs already set these when creating the room pods
         self.room_id = os.environ.get("ROOM_ID", "hub0-0")
-        
-        # Construct Hub URL
         self.hub_api_url = os.environ.get(
             "HUB_API_URL", 
-            f"http://hub.bomberman.local"
+            f"https://bomberman.romanellas.cloud"
         )
 
         print(f"[*] Hub API URL: {self.hub_api_url}")
