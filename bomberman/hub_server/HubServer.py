@@ -15,6 +15,7 @@ from bomberman.hub_server.PeerDiscoveryMonitor import PeerDiscoveryMonitor
 from bomberman.hub_server.room_manager import create_room_manager
 from bomberman.hub_server.Room import Room
 from bomberman.common.RoomState import RoomStatus
+from bomberman.hub_server.RoomHealthMonitor import RoomHealthMonitor
 
 
 def get_hub_index(hostname: str) -> int:
@@ -89,10 +90,34 @@ class HubServer:
         )
         self._room_manager.initialize_pool()
 
+        self._room_health_monitor = RoomHealthMonitor(
+            state=self._state,
+            my_index=self._hub_index,
+            on_room_unhealthy=self._on_room_unhealthy
+        )
+        self._room_health_monitor.start()
+
 
         print_console(f"Hub server started with index {self._hub_index}", "Info")
         print_console(f"Hub server started with hostname {self._hostname}", "Info")
         print_console(f"Hub server started with discovery mode {self._discovery_mode}", "Info")
+
+    def _on_room_unhealthy(self, room: Room) -> None:
+        if room.owner_hub_index == self._hub_index:
+            print_console(
+                f"Local room {room.room_id} marked as PLAYING (health check failed)",
+                "RoomHealthMonitor"
+            )
+            self._state.set_room_status(room.room_id, RoomStatus.PLAYING)
+
+            # Broadcast agli altri hub
+            self.broadcast_room_started(room.room_id)
+        else:
+            print_console(
+                f"Remote room {room.room_id} removed from state (health check failed)",
+                "RoomHealthMonitor"
+            )
+            self._state.remove_room(room.room_id)
 
     def _on_gossip_message(self, message: pb.GossipMessage, sender: ServerReference):
         sender = self._resolve_server_reference(sender, message.forwarded_by)
@@ -268,6 +293,7 @@ class HubServer:
         )
         self._send_messages_and_forward(msg)
         self._peer_discovery_monitor.stop()
+        self._room_health_monitor.stop()
         self._socket_handler.stop()
         self._room_manager.cleanup()
 

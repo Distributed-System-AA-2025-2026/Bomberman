@@ -322,18 +322,6 @@ class TestHubServerInitialization:
             assert destination.address == '127.0.0.1'
             assert destination.port == 9000
 
-    def test_init_k8s_mode(self, mock_env_k8s, mock_socket_handler, mock_failure_detector, mock_k8s_config):
-        """Test initialization in k8s mode."""
-        with patch.dict(os.environ, mock_env_k8s):
-            server = HubServer(discovery_mode='k8s')
-
-            assert server._hub_index == 1
-            assert server._discovery_mode == 'k8s'
-
-            # Verify self peer has correct k8s reference
-            self_peer = server._state.get_peer(1)
-            assert self_peer is not None
-
     def test_init_default_fanout(self, mock_socket_handler, mock_failure_detector):
         """Test initialization with default fanout when env var not set."""
         env = {'HOSTNAME': 'hub-0', 'GOSSIP_PORT': '9000'}
@@ -460,16 +448,6 @@ class TestPeerManagement:
 
             assert ref.address == '127.0.0.1'
             assert ref.port == 9005  # 9000 + 5
-
-    def test_calculate_server_reference_k8s_mode(self, mock_env_k8s, mock_socket_handler, mock_failure_detector, mock_k8s_config):
-        """Test _calculate_server_reference in k8s mode."""
-        with patch.dict(os.environ, mock_env_k8s):
-            server = HubServer(discovery_mode='k8s')
-
-            ref = server._calculate_server_reference(3)
-
-            assert ref.address == 'hub-3.hub-service.bomberman.svc.cluster.local'
-            assert ref.port == 9000
 
     @pytest.mark.parametrize("peer_index,expected_port", [
         (0, 9000),

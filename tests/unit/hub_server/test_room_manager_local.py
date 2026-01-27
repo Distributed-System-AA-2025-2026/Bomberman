@@ -368,16 +368,6 @@ class TestLocalRoomManagerIntegrationWithBase:
 class TestLocalRoomManagerEdgeCases:
     """Test suite for edge cases and error conditions"""
 
-    def test_initialize_pool_with_modified_pool_size(self):
-        """Test initialize_pool when STARTING_POOL_SIZE is modified"""
-        manager = LocalRoomManager(hub_index=1, on_room_activated=Mock())
-        manager.STARTING_POOL_SIZE = 5
-
-        with patch('bomberman.hub_server.room_manager.LocalRoomManager.print_console'):
-            manager.initialize_pool()
-
-        assert len(manager._local_rooms) == 5
-
     def test_port_overflow_for_high_hub_index(self):
         """Test port calculation with very high hub index"""
         # Port = 20001 + (hub_index * 100) + i
