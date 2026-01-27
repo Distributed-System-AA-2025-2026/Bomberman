@@ -4,7 +4,7 @@ import sys
 import os
 import time
 from bomberman.room_server.gossip import bomberman_pb2
-from NetworkUtils import send_msg, recv_msg
+from bomberman.room_server.NetworkUtils import send_msg, recv_msg
 from bomberman.room_server.GameInputHelper import RealTimeInput
 from bomberman.room_server.GameStatePersistence import SERVER_RECONNECTION_TIMEOUT
 
