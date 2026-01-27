@@ -42,9 +42,8 @@ class K8sRoomManager(RoomManagerBase):
         return f"hub{self._hub_index}-{room_index}"
 
     def initialize_pool(self) -> None:
-        sleep(30)
+        sleep(5)
         print_console(f"Initializing K8s room pool with {self.STARTING_POOL_SIZE} room(s)")
-
 
         # Prima recupera room esistenti di questo hub
         self._recover_existing_rooms()
@@ -178,11 +177,20 @@ class K8sRoomManager(RoomManagerBase):
             spec=client.V1ServiceSpec(
                 type="NodePort",
                 selector={"room-id": room_id},
-                ports=[client.V1ServicePort(
-                    port=self.ROOM_PORT,
-                    target_port=self.ROOM_PORT,
-                    protocol="TCP"
-                )]
+                ports=[
+                    client.V1ServicePort(
+                        port=self.ROOM_PORT,
+                        target_port=self.ROOM_PORT,
+                        protocol="TCP",
+                        name="game"
+                    ),
+                    client.V1ServicePort(
+                        port=8080,
+                        target_port=8080,
+                        protocol="TCP",
+                        name="api"
+                    )
+                ]
             )
         )
 
