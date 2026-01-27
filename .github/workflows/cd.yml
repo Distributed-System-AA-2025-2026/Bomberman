@@ -127,7 +127,7 @@ jobs:
 
       - name: Wait for rollout
         run: |
-          microk8s kubectl rollout status statefulset/hub -n bomberman --timeout=300s
+          microk8s kubectl rollout status statefulset/hub -n bomberman --timeout=1500s
 
       - name: Verify deployment
         run: |
