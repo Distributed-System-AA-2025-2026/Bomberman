@@ -1,5 +1,3 @@
-import uuid
-
 import uvicorn
 from contextlib import asynccontextmanager
 
@@ -64,7 +62,6 @@ if __name__ == '__main__':
         return MatchmakingResponse(
             request_code=200,
             request_message="Room assigned",
-            room_token=str(uuid.uuid4()),
             room_address=hub_server.room_manager.get_room_address(room),
             room_port=room.external_port,
             room_id=room.room_id
@@ -76,7 +73,6 @@ if __name__ == '__main__':
         hub_server = request.app.state.hub_server
         hub_server.broadcast_room_started(room_id)
         return DefaultResponse(
-            status_code=200,
             response_code=200,
             response_message="Ok."
         )
@@ -87,7 +83,6 @@ if __name__ == '__main__':
         hub_server = request.app.state.hub_server
         hub_server.broadcast_room_closed(room_id)
         return DefaultResponse(
-            status_code=200,
             response_code=200,
             response_message="Ok."
         )
@@ -108,6 +103,22 @@ if __name__ == '__main__':
                 "port": peer.reference.port
             })
 
+        rooms_info = []
+        for room in hub_server.get_all_rooms():
+            rooms_info.append({
+                "room_id": room.room_id,
+                "owner_hub_index": room.owner_hub_index,
+                "status": room.status.value,
+                "external_port": room.external_port,
+                "is_local": room.owner_hub_index == hub_server.hub_index,
+                "is_joinable": room.is_joinable
+            })
+
+        # Group rooms by status for quick overview
+        active_rooms = [r for r in rooms_info if r["status"] == "active"]
+        dormant_rooms = [r for r in rooms_info if r["status"] == "dormant"]
+        playing_rooms = [r for r in rooms_info if r["status"] == "playing"]
+
         return {
             "hostname": hub_server.hostname,
             "hub_index": hub_server.hub_index,
@@ -116,7 +127,12 @@ if __name__ == '__main__':
             "last_nonce": hub_server.last_used_nonce,
             "peers_count": len(peers_info),
             "alive_peers_count": len([p for p in peers_info if p["status"] == "alive"]),
-            "peers": peers_info
+            "peers": peers_info,
+            "rooms_count": len(rooms_info),
+            "active_rooms_count": len(active_rooms),
+            "dormant_rooms_count": len(dormant_rooms),
+            "playing_rooms_count": len(playing_rooms),
+            "rooms": rooms_info
         }
 
 
