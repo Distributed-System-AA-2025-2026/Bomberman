@@ -428,6 +428,13 @@ class GameEngine:
             if verbose:
                 print(f"Player '{player_id}' already has an active bomb and cannot place another.")
             return
+        
+        # Check if there's already a bomb at the player's position
+        for bomb in self.bombs:
+            if bomb.position.x == player.position.x and bomb.position.y == player.position.y:
+                if verbose:
+                    print(f"Player '{player_id}' cannot place a bomb on an existing bomb at ({player.position.x}, {player.position.y}).")
+                return
 
         # Create and add the bomb
         bomb_position = Position(player.position.x, player.position.y)
