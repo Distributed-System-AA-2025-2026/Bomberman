@@ -408,3 +408,6 @@ class HubServer:
     @property
     def room_manager(self):
         return self._room_manager
+
+    def get_all_rooms(self):
+        return self._state.get_all_rooms()
