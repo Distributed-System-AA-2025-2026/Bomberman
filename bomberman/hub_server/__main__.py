@@ -116,8 +116,6 @@ if __name__ == '__main__':
 
         # Group rooms by status for quick overview
         active_rooms = [r for r in rooms_info if r["status"] == "active"]
-        dormant_rooms = [r for r in rooms_info if r["status"] == "dormant"]
-        playing_rooms = [r for r in rooms_info if r["status"] == "playing"]
 
         return {
             "hostname": hub_server.hostname,
@@ -130,8 +128,6 @@ if __name__ == '__main__':
             "peers": peers_info,
             "rooms_count": len(rooms_info),
             "active_rooms_count": len(active_rooms),
-            "dormant_rooms_count": len(dormant_rooms),
-            "playing_rooms_count": len(playing_rooms),
             "rooms": rooms_info
         }
 
