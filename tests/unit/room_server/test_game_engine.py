@@ -86,6 +86,12 @@ class TestGameEngineInitialization(BaseTestCase):
                 self.assertEqual(engine.width, 11)
                 self.assertEqual(engine.height, 11)
 
+    def test_at_least_two_spawn_points(self):
+        """Test that generated grid has at least two spawn points"""
+        engine = GameEngine()
+
+        self.assertGreaterEqual(len(engine.free_spawn_points), 2)
+
 
 class TestPlayerManagement(BaseTestCase):
     """Test player addition, removal, and management"""
