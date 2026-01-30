@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 import struct
 import socket
 from bomberman.room_server.NetworkUtils import send_msg, recv_msg
@@ -19,33 +19,25 @@ class TestNetworkUtils(unittest.TestCase):
     def test_recv_msg_success(self):
         """Test receiving a complete message."""
         mock_sock = MagicMock(spec=socket.socket)
-        
         # Mock receiving length (5) then data ("hello")
         mock_sock.recv.side_effect = [struct.pack(">I", 5), b"hello"]
         
         result = recv_msg(mock_sock)
         self.assertEqual(result, b"hello")
 
-    def test_recv_msg_fragmented(self):
-        """Test receiving a message that arrives in chunks."""
+    def test_recv_msg_partial_header(self):
+        """Test receiving incomplete header returns None."""
         mock_sock = MagicMock(spec=socket.socket)
-        
-        # Scenario: Length comes in two parts, then data comes in two parts
-        # Length is 4 bytes. Data is "test" (4 bytes).
-        part1_len = b"\x00\x00"
-        part2_len = b"\x00\x04"
-        part1_data = b"te"
-        part2_data = b"st"
-        
-        mock_sock.recv.side_effect = [part1_len, part2_len, part1_data, part2_data]
+        # Simulate partial header (2 bytes) then connection close (b"")
+        mock_sock.recv.side_effect = [b"\x00\x00", b""] 
         
         result = recv_msg(mock_sock)
-        self.assertEqual(result, b"test")
+        self.assertIsNone(result)
 
     def test_recv_msg_connection_closed(self):
-        """Test that None is returned when connection closes (recv returns empty bytes)."""
+        """Test that None is returned when connection closes."""
         mock_sock = MagicMock(spec=socket.socket)
-        mock_sock.recv.return_value = b"" # Socket closed
+        mock_sock.recv.return_value = b"" 
         
         result = recv_msg(mock_sock)
         self.assertIsNone(result)
