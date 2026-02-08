@@ -387,35 +387,29 @@ class HubServer:
         )
         self._send_messages_and_forward(msg)
 
+    def increment_player_count(self, room: Room) -> None:
+        room.increment_player_count()
+        msg = pb.GossipMessage(
+            nonce=self._get_next_nonce(),
+            origin=self._hub_index,
+            forwarded_by=self._hub_index,
+            timestamp=time.time(),
+            event_type=pb.ROOM_PLAYER_JOINED,
+            room_player_joined=pb.RoomPlayerJoined(room_id=room.room_id)
+        )
+        self._send_messages_and_forward(msg)
+
     def get_or_activate_room(self) -> Room | None:
         """Chiamato dal matchmaking endpoint"""
         room = self._state.get_active_room()
         if room:
-            room.increment_player_count()
-            msg = pb.GossipMessage(
-                nonce=self._get_next_nonce(),
-                origin=self._hub_index,
-                forwarded_by=self._hub_index,
-                timestamp=time.time(),
-                event_type=pb.ROOM_PLAYER_JOINED,
-                room_player_joined=pb.RoomPlayerJoined(room_id=room.room_id)
-            )
-            self._send_messages_and_forward(msg)
+            self.increment_player_count(room)
             return room
 
-        room = self._room_manager.activate_room()
-        if room:
-            room.increment_player_count()
-            msg = pb.GossipMessage(
-                nonce=self._get_next_nonce(),
-                origin=self._hub_index,
-                forwarded_by=self._hub_index,
-                timestamp=time.time(),
-                event_type=pb.ROOM_PLAYER_JOINED,
-                room_player_joined=pb.RoomPlayerJoined(room_id=room.room_id)
-            )
-            self._send_messages_and_forward(msg)
-        return room
+        activated_room = self._room_manager.activate_room()
+        if activated_room is not None:
+            self.increment_player_count(activated_room)
+        return activated_room
 
     def get_all_peers(self) -> list[HubPeer]:
         return self._state.get_all_peers()
