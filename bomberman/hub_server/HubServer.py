@@ -403,7 +403,19 @@ class HubServer:
             self._send_messages_and_forward(msg)
             return room
 
-        return self._room_manager.activate_room()
+        room = self._room_manager.activate_room()
+        if room:
+            room.increment_player_count()
+            msg = pb.GossipMessage(
+                nonce=self._get_next_nonce(),
+                origin=self._hub_index,
+                forwarded_by=self._hub_index,
+                timestamp=time.time(),
+                event_type=pb.ROOM_PLAYER_JOINED,
+                room_player_joined=pb.RoomPlayerJoined(room_id=room.room_id)
+            )
+            self._send_messages_and_forward(msg)
+        return room
 
     def get_all_peers(self) -> list[HubPeer]:
         return self._state.get_all_peers()
