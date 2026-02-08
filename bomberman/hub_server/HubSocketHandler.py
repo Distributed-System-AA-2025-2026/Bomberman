@@ -1,7 +1,7 @@
 import socket
 import threading
 from typing import Callable, Literal
-
+import inspect
 from bomberman.common.ServerReference import ServerReference
 from bomberman.hub_server.gossip import messages_pb2 as pb
 from bomberman.hub_server.hublogging import print_console
@@ -27,6 +27,23 @@ class HubSocketHandler:
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._socket.bind(("0.0.0.0", port))
         self._logging = logging
+        self._execute_check()
+
+    def _execute_check(self):
+        if self._on_message is None:
+            raise TypeError("on_message callback cannot be None")
+
+        if not callable(self._on_message):
+            raise TypeError(f"on_message must be callable, got {type(self._on_message).__name__}")
+
+        sig = inspect.signature(self._on_message)
+        if len(sig.parameters) != 2:
+            raise TypeError(
+                f"on_message must accept exactly 2 parameters (message, sender), "
+                f"got {len(sig.parameters)} parameters"
+            )
+        if self._logging is not None and not callable(self._logging):
+            raise TypeError(f"logging must be callable, got {type(self._logging).__name__}")
 
     def start(self):
         self._running = True
@@ -52,10 +69,6 @@ class HubSocketHandler:
 
     def _handle_message(self, data: bytes, addr: tuple[str, int]):
         """Parsing and callback """
-
-        if self._on_message is None:
-            raise TypeError
-
         try:
             message = pb.GossipMessage()
             message.ParseFromString(data)

@@ -16,6 +16,7 @@ class EventType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ROOM_ACTIVATED: _ClassVar[EventType]
     ROOM_STARTED: _ClassVar[EventType]
     ROOM_CLOSED: _ClassVar[EventType]
+    ROOM_PLAYER_JOINED: _ClassVar[EventType]
 PEER_JOIN: EventType
 PEER_LEAVE: EventType
 PEER_ALIVE: EventType
@@ -24,9 +25,10 @@ PEER_DEAD: EventType
 ROOM_ACTIVATED: EventType
 ROOM_STARTED: EventType
 ROOM_CLOSED: EventType
+ROOM_PLAYER_JOINED: EventType
 
 class GossipMessage(_message.Message):
-    __slots__ = ("nonce", "origin", "forwarded_by", "timestamp", "event_type", "peer_join", "peer_leave", "peer_alive", "peer_suspicious", "peer_dead", "room_activated", "room_started", "room_closed")
+    __slots__ = ("nonce", "origin", "forwarded_by", "timestamp", "event_type", "peer_join", "peer_leave", "peer_alive", "peer_suspicious", "peer_dead", "room_activated", "room_started", "room_closed", "room_player_joined")
     NONCE_FIELD_NUMBER: _ClassVar[int]
     ORIGIN_FIELD_NUMBER: _ClassVar[int]
     FORWARDED_BY_FIELD_NUMBER: _ClassVar[int]
@@ -40,6 +42,7 @@ class GossipMessage(_message.Message):
     ROOM_ACTIVATED_FIELD_NUMBER: _ClassVar[int]
     ROOM_STARTED_FIELD_NUMBER: _ClassVar[int]
     ROOM_CLOSED_FIELD_NUMBER: _ClassVar[int]
+    ROOM_PLAYER_JOINED_FIELD_NUMBER: _ClassVar[int]
     nonce: int
     origin: int
     forwarded_by: int
@@ -53,7 +56,8 @@ class GossipMessage(_message.Message):
     room_activated: RoomActivatedPayload
     room_started: RoomStartedPayload
     room_closed: RoomClosedPayload
-    def __init__(self, nonce: _Optional[int] = ..., origin: _Optional[int] = ..., forwarded_by: _Optional[int] = ..., timestamp: _Optional[float] = ..., event_type: _Optional[_Union[EventType, str]] = ..., peer_join: _Optional[_Union[PeerJoinPayload, _Mapping]] = ..., peer_leave: _Optional[_Union[PeerLeavePayload, _Mapping]] = ..., peer_alive: _Optional[_Union[PeerAlivePayload, _Mapping]] = ..., peer_suspicious: _Optional[_Union[PeerSuspiciousPayload, _Mapping]] = ..., peer_dead: _Optional[_Union[PeerDeadPayload, _Mapping]] = ..., room_activated: _Optional[_Union[RoomActivatedPayload, _Mapping]] = ..., room_started: _Optional[_Union[RoomStartedPayload, _Mapping]] = ..., room_closed: _Optional[_Union[RoomClosedPayload, _Mapping]] = ...) -> None: ...
+    room_player_joined: RoomPlayerJoined
+    def __init__(self, nonce: _Optional[int] = ..., origin: _Optional[int] = ..., forwarded_by: _Optional[int] = ..., timestamp: _Optional[float] = ..., event_type: _Optional[_Union[EventType, str]] = ..., peer_join: _Optional[_Union[PeerJoinPayload, _Mapping]] = ..., peer_leave: _Optional[_Union[PeerLeavePayload, _Mapping]] = ..., peer_alive: _Optional[_Union[PeerAlivePayload, _Mapping]] = ..., peer_suspicious: _Optional[_Union[PeerSuspiciousPayload, _Mapping]] = ..., peer_dead: _Optional[_Union[PeerDeadPayload, _Mapping]] = ..., room_activated: _Optional[_Union[RoomActivatedPayload, _Mapping]] = ..., room_started: _Optional[_Union[RoomStartedPayload, _Mapping]] = ..., room_closed: _Optional[_Union[RoomClosedPayload, _Mapping]] = ..., room_player_joined: _Optional[_Union[RoomPlayerJoined, _Mapping]] = ...) -> None: ...
 
 class PeerJoinPayload(_message.Message):
     __slots__ = ("joining_peer",)
@@ -104,6 +108,12 @@ class RoomActivatedPayload(_message.Message):
     def __init__(self, room_id: _Optional[str] = ..., owner_hub: _Optional[int] = ..., external_port: _Optional[int] = ..., external_address: _Optional[str] = ...) -> None: ...
 
 class RoomClosedPayload(_message.Message):
+    __slots__ = ("room_id",)
+    ROOM_ID_FIELD_NUMBER: _ClassVar[int]
+    room_id: str
+    def __init__(self, room_id: _Optional[str] = ...) -> None: ...
+
+class RoomPlayerJoined(_message.Message):
     __slots__ = ("room_id",)
     ROOM_ID_FIELD_NUMBER: _ClassVar[int]
     room_id: str

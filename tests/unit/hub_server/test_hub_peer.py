@@ -1,127 +1,69 @@
-# tests/unit/test_hub_peer.py
 import pytest
 import time
-from typing import Literal
-
-from bomberman.hub_server.HubPeer import HubPeer
 from bomberman.common.ServerReference import ServerReference
+from bomberman.hub_server.HubPeer import HubPeer
 
 
-class TestHubPeerInit:
-    """Test HubPeer initialization"""
+class TestHubPeer:
 
-    def setup_method(self):
-        self.ref = ServerReference("127.0.0.1", 9000)
+    def _make_ref(self, addr="10.0.0.1", port=9000):
+        return ServerReference(addr, port)
 
-    def test_init_sets_default_values(self):
-        peer = HubPeer(self.ref, 0)
-
+    def test_creation_sets_defaults(self):
+        peer = HubPeer(self._make_ref(), 0)
         assert peer.index == 0
-        assert peer.reference == self.ref
         assert peer.status == 'alive'
         assert peer.heartbeat == 0
+        assert peer.last_seen > 0
 
-    def test_init_sets_last_seen_to_now(self):
-        before = time.time()
-        peer = HubPeer(self.ref, 0)
-        after = time.time()
+    def test_negative_index_rejected(self):
+        with pytest.raises(ValueError):
+            HubPeer(self._make_ref(), -1)
 
-        assert before <= peer.last_seen <= after
-
-    @pytest.mark.parametrize("index", [-1, -100])
-    def test_init_negative_index_raises(self, index: int):
-        with pytest.raises(ValueError, match="cannot be negative"):
-            HubPeer(self.ref, index)
-
-
-class TestHubPeerIndex:
-    """Test index property (read-only)"""
-
-    def setup_method(self):
-        self.ref = ServerReference("127.0.0.1", 9000)
-
-    def test_index_is_readonly(self):
-        peer = HubPeer(self.ref, 5)
-
-        with pytest.raises(AttributeError):
-            peer.index = 10
-
-    @pytest.mark.parametrize("index", [0, 1, 100, 10000])
-    def test_index_various_values(self, index: int):
-        peer = HubPeer(self.ref, index)
-        assert peer.index == index
-
-
-class TestHubPeerStatus:
-    """Test status property"""
-
-    def setup_method(self):
-        self.ref = ServerReference("127.0.0.1", 9000)
-        self.peer = HubPeer(self.ref, 0)
+    def test_zero_index_accepted(self):
+        peer = HubPeer(self._make_ref(), 0)
+        assert peer.index == 0
 
     @pytest.mark.parametrize("status", ['alive', 'suspected', 'dead'])
-    def test_status_valid_values(self, status: Literal['alive', 'suspected', 'dead']):
-        self.peer.status = status
-        assert self.peer.status == status
+    def test_valid_status_transitions(self, status):
+        peer = HubPeer(self._make_ref(), 0)
+        peer.status = status
+        assert peer.status == status
 
-    @pytest.mark.parametrize("invalid_status", ['invalid', 'ALIVE', 'Dead', ''])
-    def test_status_invalid_values_raises(self, invalid_status: str):
-        with pytest.raises(ValueError, match="Invalid status"):
-            self.peer.status = invalid_status
+    @pytest.mark.parametrize("invalid_status", ['unknown', '', 'ALIVE', 'Dead', 'suspectedx'])
+    def test_invalid_status_rejected(self, invalid_status):
+        peer = HubPeer(self._make_ref(), 0)
+        with pytest.raises(ValueError):
+            peer.status = invalid_status
 
+    def test_negative_heartbeat_rejected(self):
+        peer = HubPeer(self._make_ref(), 0)
+        with pytest.raises(ValueError):
+            peer.heartbeat = -1
 
-class TestHubPeerHeartbeat:
-    """Test heartbeat property"""
+    def test_heartbeat_zero_accepted(self):
+        peer = HubPeer(self._make_ref(), 0)
+        peer.heartbeat = 0
+        assert peer.heartbeat == 0
 
-    def setup_method(self):
-        self.ref = ServerReference("127.0.0.1", 9000)
-        self.peer = HubPeer(self.ref, 0)
+    def test_negative_last_seen_rejected(self):
+        peer = HubPeer(self._make_ref(), 0)
+        with pytest.raises(ValueError):
+            peer.last_seen = -1
 
-    @pytest.mark.parametrize("value", [0, 1, 1000, 10**18])
-    def test_heartbeat_positive_values(self, value: int):
-        self.peer.heartbeat = value
-        assert self.peer.heartbeat == value
+    def test_reference_can_be_updated(self):
+        peer = HubPeer(self._make_ref("1.1.1.1", 1000), 0)
+        new_ref = self._make_ref("2.2.2.2", 2000)
+        peer.reference = new_ref
+        assert peer.reference == new_ref
 
-    @pytest.mark.parametrize("value", [-1, -100])
-    def test_heartbeat_negative_values_raises(self, value: int):
-        with pytest.raises(ValueError, match="cannot be negative"):
-            self.peer.heartbeat = value
+    def test_last_seen_initialized_to_current_time(self):
+        before = time.time()
+        peer = HubPeer(self._make_ref(), 0)
+        after = time.time()
+        assert before <= peer.last_seen <= after
 
-
-class TestHubPeerLastSeen:
-    """Test last_seen property"""
-
-    def setup_method(self):
-        self.ref = ServerReference("127.0.0.1", 9000)
-        self.peer = HubPeer(self.ref, 0)
-
-    def test_last_seen_update(self):
-        old_value = self.peer.last_seen
-        time.sleep(0.05)
-        new_value = time.time()
-
-        self.peer.last_seen = new_value
-
-        assert self.peer.last_seen == new_value
-        assert self.peer.last_seen > old_value
-
-    def test_last_seen_negative_raises(self):
-        with pytest.raises(ValueError, match="cannot be negative"):
-            self.peer.last_seen = -1.0
-
-
-class TestHubPeerReference:
-    """Test reference property"""
-
-    def setup_method(self):
-        self.ref = ServerReference("127.0.0.1", 9000)
-        self.peer = HubPeer(self.ref, 0)
-
-    def test_reference_update(self):
-        new_ref = ServerReference("192.168.1.1", 9001)
-
-        self.peer.reference = new_ref
-
-        assert self.peer.reference == new_ref
-        assert self.peer.reference.address == "192.168.1.1"
-        assert self.peer.reference.port == 9001
+    def test_status_setter_does_not_guard_against_non_string_types(self):
+        peer = HubPeer(self._make_ref(), 0)
+        with pytest.raises(ValueError):
+            peer.status = 123

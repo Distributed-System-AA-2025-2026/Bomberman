@@ -24,31 +24,33 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0emessages.proto\x12\x06gossip\"\x9d\x04\n\rGossipMessage\x12\r\n\x05nonce\x18\x01 \x01(\x03\x12\x0e\n\x06origin\x18\x02 \x01(\x05\x12\x14\n\x0c\x66orwarded_by\x18\x03 \x01(\x05\x12\x11\n\ttimestamp\x18\x04 \x01(\x01\x12%\n\nevent_type\x18\x05 \x01(\x0e\x32\x11.gossip.EventType\x12,\n\tpeer_join\x18\n \x01(\x0b\x32\x17.gossip.PeerJoinPayloadH\x00\x12.\n\npeer_leave\x18\x0b \x01(\x0b\x32\x18.gossip.PeerLeavePayloadH\x00\x12.\n\npeer_alive\x18\x0c \x01(\x0b\x32\x18.gossip.PeerAlivePayloadH\x00\x12\x38\n\x0fpeer_suspicious\x18\r \x01(\x0b\x32\x1d.gossip.PeerSuspiciousPayloadH\x00\x12,\n\tpeer_dead\x18\x0e \x01(\x0b\x32\x17.gossip.PeerDeadPayloadH\x00\x12\x36\n\x0eroom_activated\x18\x0f \x01(\x0b\x32\x1c.gossip.RoomActivatedPayloadH\x00\x12\x32\n\x0croom_started\x18\x10 \x01(\x0b\x32\x1a.gossip.RoomStartedPayloadH\x00\x12\x30\n\x0broom_closed\x18\x11 \x01(\x0b\x32\x19.gossip.RoomClosedPayloadH\x00\x42\t\n\x07payload\"\'\n\x0fPeerJoinPayload\x12\x14\n\x0cjoining_peer\x18\x01 \x01(\x05\"(\n\x10PeerLeavePayload\x12\x14\n\x0cleaving_peer\x18\x01 \x01(\x05\"&\n\x10PeerAlivePayload\x12\x12\n\nalive_peer\x18\x01 \x01(\x05\"0\n\x15PeerSuspiciousPayload\x12\x17\n\x0fsuspicious_peer\x18\x01 \x01(\x05\"$\n\x0fPeerDeadPayload\x12\x11\n\tdead_peer\x18\x01 \x01(\x05\"%\n\x12RoomStartedPayload\x12\x0f\n\x07room_id\x18\x01 \x01(\t\"k\n\x14RoomActivatedPayload\x12\x0f\n\x07room_id\x18\x01 \x01(\t\x12\x11\n\towner_hub\x18\x02 \x01(\x05\x12\x15\n\rexternal_port\x18\x03 \x01(\x05\x12\x18\n\x10\x65xternal_address\x18\x04 \x01(\t\"$\n\x11RoomClosedPayload\x12\x0f\n\x07room_id\x18\x01 \x01(\t*\x95\x01\n\tEventType\x12\r\n\tPEER_JOIN\x10\x00\x12\x0e\n\nPEER_LEAVE\x10\x01\x12\x0e\n\nPEER_ALIVE\x10\x02\x12\x13\n\x0fPEER_SUSPICIOUS\x10\x03\x12\r\n\tPEER_DEAD\x10\x04\x12\x12\n\x0eROOM_ACTIVATED\x10\n\x12\x10\n\x0cROOM_STARTED\x10\x0b\x12\x0f\n\x0bROOM_CLOSED\x10\x0c\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0emessages.proto\x12\x06gossip\"\xd5\x04\n\rGossipMessage\x12\r\n\x05nonce\x18\x01 \x01(\x03\x12\x0e\n\x06origin\x18\x02 \x01(\x05\x12\x14\n\x0c\x66orwarded_by\x18\x03 \x01(\x05\x12\x11\n\ttimestamp\x18\x04 \x01(\x01\x12%\n\nevent_type\x18\x05 \x01(\x0e\x32\x11.gossip.EventType\x12,\n\tpeer_join\x18\n \x01(\x0b\x32\x17.gossip.PeerJoinPayloadH\x00\x12.\n\npeer_leave\x18\x0b \x01(\x0b\x32\x18.gossip.PeerLeavePayloadH\x00\x12.\n\npeer_alive\x18\x0c \x01(\x0b\x32\x18.gossip.PeerAlivePayloadH\x00\x12\x38\n\x0fpeer_suspicious\x18\r \x01(\x0b\x32\x1d.gossip.PeerSuspiciousPayloadH\x00\x12,\n\tpeer_dead\x18\x0e \x01(\x0b\x32\x17.gossip.PeerDeadPayloadH\x00\x12\x36\n\x0eroom_activated\x18\x0f \x01(\x0b\x32\x1c.gossip.RoomActivatedPayloadH\x00\x12\x32\n\x0croom_started\x18\x10 \x01(\x0b\x32\x1a.gossip.RoomStartedPayloadH\x00\x12\x30\n\x0broom_closed\x18\x11 \x01(\x0b\x32\x19.gossip.RoomClosedPayloadH\x00\x12\x36\n\x12room_player_joined\x18\x12 \x01(\x0b\x32\x18.gossip.RoomPlayerJoinedH\x00\x42\t\n\x07payload\"\'\n\x0fPeerJoinPayload\x12\x14\n\x0cjoining_peer\x18\x01 \x01(\x05\"(\n\x10PeerLeavePayload\x12\x14\n\x0cleaving_peer\x18\x01 \x01(\x05\"&\n\x10PeerAlivePayload\x12\x12\n\nalive_peer\x18\x01 \x01(\x05\"0\n\x15PeerSuspiciousPayload\x12\x17\n\x0fsuspicious_peer\x18\x01 \x01(\x05\"$\n\x0fPeerDeadPayload\x12\x11\n\tdead_peer\x18\x01 \x01(\x05\"%\n\x12RoomStartedPayload\x12\x0f\n\x07room_id\x18\x01 \x01(\t\"k\n\x14RoomActivatedPayload\x12\x0f\n\x07room_id\x18\x01 \x01(\t\x12\x11\n\towner_hub\x18\x02 \x01(\x05\x12\x15\n\rexternal_port\x18\x03 \x01(\x05\x12\x18\n\x10\x65xternal_address\x18\x04 \x01(\t\"$\n\x11RoomClosedPayload\x12\x0f\n\x07room_id\x18\x01 \x01(\t\"#\n\x10RoomPlayerJoined\x12\x0f\n\x07room_id\x18\x01 \x01(\t*\xad\x01\n\tEventType\x12\r\n\tPEER_JOIN\x10\x00\x12\x0e\n\nPEER_LEAVE\x10\x01\x12\x0e\n\nPEER_ALIVE\x10\x02\x12\x13\n\x0fPEER_SUSPICIOUS\x10\x03\x12\r\n\tPEER_DEAD\x10\x04\x12\x12\n\x0eROOM_ACTIVATED\x10\n\x12\x10\n\x0cROOM_STARTED\x10\x0b\x12\x0f\n\x0bROOM_CLOSED\x10\x0c\x12\x16\n\x12ROOM_PLAYER_JOINED\x10\rb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'messages_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_EVENTTYPE']._serialized_start=968
-  _globals['_EVENTTYPE']._serialized_end=1117
+  _globals['_EVENTTYPE']._serialized_start=1061
+  _globals['_EVENTTYPE']._serialized_end=1234
   _globals['_GOSSIPMESSAGE']._serialized_start=27
-  _globals['_GOSSIPMESSAGE']._serialized_end=568
-  _globals['_PEERJOINPAYLOAD']._serialized_start=570
-  _globals['_PEERJOINPAYLOAD']._serialized_end=609
-  _globals['_PEERLEAVEPAYLOAD']._serialized_start=611
-  _globals['_PEERLEAVEPAYLOAD']._serialized_end=651
-  _globals['_PEERALIVEPAYLOAD']._serialized_start=653
-  _globals['_PEERALIVEPAYLOAD']._serialized_end=691
-  _globals['_PEERSUSPICIOUSPAYLOAD']._serialized_start=693
-  _globals['_PEERSUSPICIOUSPAYLOAD']._serialized_end=741
-  _globals['_PEERDEADPAYLOAD']._serialized_start=743
-  _globals['_PEERDEADPAYLOAD']._serialized_end=779
-  _globals['_ROOMSTARTEDPAYLOAD']._serialized_start=781
-  _globals['_ROOMSTARTEDPAYLOAD']._serialized_end=818
-  _globals['_ROOMACTIVATEDPAYLOAD']._serialized_start=820
-  _globals['_ROOMACTIVATEDPAYLOAD']._serialized_end=927
-  _globals['_ROOMCLOSEDPAYLOAD']._serialized_start=929
-  _globals['_ROOMCLOSEDPAYLOAD']._serialized_end=965
+  _globals['_GOSSIPMESSAGE']._serialized_end=624
+  _globals['_PEERJOINPAYLOAD']._serialized_start=626
+  _globals['_PEERJOINPAYLOAD']._serialized_end=665
+  _globals['_PEERLEAVEPAYLOAD']._serialized_start=667
+  _globals['_PEERLEAVEPAYLOAD']._serialized_end=707
+  _globals['_PEERALIVEPAYLOAD']._serialized_start=709
+  _globals['_PEERALIVEPAYLOAD']._serialized_end=747
+  _globals['_PEERSUSPICIOUSPAYLOAD']._serialized_start=749
+  _globals['_PEERSUSPICIOUSPAYLOAD']._serialized_end=797
+  _globals['_PEERDEADPAYLOAD']._serialized_start=799
+  _globals['_PEERDEADPAYLOAD']._serialized_end=835
+  _globals['_ROOMSTARTEDPAYLOAD']._serialized_start=837
+  _globals['_ROOMSTARTEDPAYLOAD']._serialized_end=874
+  _globals['_ROOMACTIVATEDPAYLOAD']._serialized_start=876
+  _globals['_ROOMACTIVATEDPAYLOAD']._serialized_end=983
+  _globals['_ROOMCLOSEDPAYLOAD']._serialized_start=985
+  _globals['_ROOMCLOSEDPAYLOAD']._serialized_end=1021
+  _globals['_ROOMPLAYERJOINED']._serialized_start=1023
+  _globals['_ROOMPLAYERJOINED']._serialized_end=1058
 # @@protoc_insertion_point(module_scope)
