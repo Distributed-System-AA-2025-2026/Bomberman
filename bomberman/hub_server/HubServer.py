@@ -97,7 +97,6 @@ class HubServer:
         )
         self._room_health_monitor.start()
 
-
         print_console(f"Hub server started with index {self._hub_index}", "Info")
         print_console(f"Hub server started with hostname {self._hostname}", "Info")
         print_console(f"Hub server started with discovery mode {self._discovery_mode}", "Info")
@@ -161,6 +160,8 @@ class HubServer:
                 self._handle_room_started(message.room_started)
             case pb.ROOM_CLOSED:
                 self._handle_room_closed(message.room_closed)
+            case pb.ROOM_PLAYER_JOINED:
+                self._handle_room_player_joined(message.room_player_joined)
 
     def _handle_peer_join(self, payload: pb.PeerJoinPayload):
         print_console(f"Peer with index {payload.joining_peer} joined", "Gossip")
@@ -181,6 +182,9 @@ class HubServer:
             self._broadcast_peer_alive()
 
     def _handle_peer_dead(self, payload: pb.PeerDeadPayload):
+        """
+        Is called when a peer tell us that another one is dead.
+        """
         print_console(f"Peer {payload.dead_peer} declared dead", "Gossip")
         dead_peer_memory = self._state.get_peer(required_peer=payload.dead_peer)
         if dead_peer_memory is not None and dead_peer_memory.status == 'suspected':
@@ -208,6 +212,12 @@ class HubServer:
         """Partita finita, room torna disponibile"""
         print_console(f"Room {payload.room_id} closed.", "Gossip")
         self._state.set_room_status(payload.room_id, RoomStatus.DORMANT)
+
+    def _handle_room_player_joined(self, payload: pb.RoomPlayerJoined):
+        print_console(f"Player joined room {payload.room_id}", "Gossip")
+        room = self._state.get_room(payload.room_id)
+        if room is not None:
+            room.increment_player_count()
 
     def broadcast_room_started(self, room_id: str):
         """Chiamato dalla room quando inizia la partita"""
@@ -328,6 +338,9 @@ class HubServer:
         self._send_messages_and_forward(msg)
 
     def _on_peer_dead(self, dead_peer: int) -> None:
+        """
+        Is called when the peer discover that another one is dead
+        """
         print_console(f"Peer {dead_peer} is dead.", 'FailureDetector')
         msg = pb.GossipMessage(
             nonce=self._get_next_nonce(),
@@ -378,6 +391,16 @@ class HubServer:
         """Chiamato dal matchmaking endpoint"""
         room = self._state.get_active_room()
         if room:
+            room.increment_player_count()
+            msg = pb.GossipMessage(
+                nonce=self._get_next_nonce(),
+                origin=self._hub_index,
+                forwarded_by=self._hub_index,
+                timestamp=time.time(),
+                event_type=pb.ROOM_PLAYER_JOINED,
+                room_player_joined=pb.RoomPlayerJoined(room_id=room.room_id)
+            )
+            self._send_messages_and_forward(msg)
             return room
 
         return self._room_manager.activate_room()

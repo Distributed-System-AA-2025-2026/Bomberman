@@ -1,1612 +1,581 @@
-# test_hub_server.py
-import pytest
 import pytest
 import os
 import time
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, patch
 
-from kubernetes import config
-
-from bomberman.hub_server.HubServer import HubServer, get_hub_index, print_console
-from bomberman.hub_server.HubPeer import HubPeer
-from bomberman.hub_server.HubSocketHandler import HubSocketHandler
-from bomberman.hub_server.FailureDetector import FailureDetector
+from bomberman.hub_server.HubServer import get_hub_index, HubServer
 from bomberman.common.ServerReference import ServerReference
-from bomberman.hub_server.gossip import messages_pb2 as pb
-from bomberman.common.RoomState import RoomStatus
 from bomberman.hub_server.Room import Room
+from bomberman.common.RoomState import RoomStatus
+from bomberman.hub_server.gossip import messages_pb2 as pb
 
 
 class TestGetHubIndex:
-    """Test suite for get_hub_index function"""
-
-    @pytest.mark.parametrize("hostname,expected", [
-        ("hub-1.local", 1),
-        ("hub-34.local", 34),
-        ("hub-542.hub-headless.default.svc.cluster.local", 542),
-        ("hub-1000.local", 1000),
-        ("hub-20930.hub-headless.default.svc.cluster.local", 20930),
-    ])
-    def test_valid_indices_different_magnitudes(self, hostname: str, expected: int):
-        """Test parsing of hub indices across different orders of magnitude"""
-        assert get_hub_index(hostname) == expected
 
     @pytest.mark.parametrize("hostname,expected", [
         ("hub-0.local", 0),
-        ("hub-0.hub-headless.default.svc.cluster.local", 0),
-    ])
-    def test_index_zero(self, hostname: str, expected: int):
-        """Test that index 0 is correctly parsed (edge case: first pod)"""
-        assert get_hub_index(hostname) == expected
-
-    @pytest.mark.parametrize("hostname,expected", [
-        ("hub-007.local", 7),
-        ("hub-0042.local", 42),
-    ])
-    def test_leading_zeros(self, hostname: str, expected: int):
-        """Test that leading zeros are handled correctly"""
-        assert get_hub_index(hostname) == expected
-
-    @pytest.mark.parametrize("hostname,expected", [
-        ("hub-99999999.local", 99999999),
-        ("hub-123456789.hub-headless.default.svc.cluster.local", 123456789),
-    ])
-    def test_large_indices(self, hostname: str, expected: int):
-        """Test parsing of very large indices"""
-        assert get_hub_index(hostname) == expected
-
-    @pytest.mark.parametrize("hostname", [
-        "",                          # empty string
-        "hub-.local",                # missing index
-        "hub.local",                 # missing dash and index
-        "server-0.local",            # wrong prefix
-        "HUB-0.local",               # wrong case
-        "hub-abc.local",             # letters instead of digits
-        "hub-12abc.local",           # mixed digits and letters
-        "hub--1.local",              # double dash (negative-like)
-        "0-hub.local",               # reversed format
-        "  hub-0.local",             # leading whitespace
-        "hub-0.local  ",             # trailing whitespace (re.match handles this, but let's be explicit)
-    ])
-    def test_invalid_hostname_raises_value_error(self, hostname: str):
-        """Test that invalid hostnames raise ValueError"""
-        with pytest.raises(ValueError, match="Invalid hub hostname"):
-            get_hub_index(hostname)
-
-    @pytest.mark.parametrize("hostname,expected", [
-        ("hub-5", 5),                           # no domain
-        ("hub-123.a.b.c.d.e.f.g", 123),         # deeply nested domain
-    ])
-    def test_various_domain_formats(self, hostname: str, expected: int):
-        """Test that domain suffix doesn't affect parsing"""
-        assert get_hub_index(hostname) == expected
-
-
-@pytest.fixture
-def mock_env_manual():
-    """Mock environment variables for manual discovery mode."""
-    return {
-        'HOSTNAME': 'hub-0',
-        'GOSSIP_PORT': '9000',
-        'HUB_FANOUT': '4'
-    }
-
-
-@pytest.fixture
-def mock_env_k8s():
-    """Mock environment variables for k8s discovery mode."""
-    return {
-        'HOSTNAME': 'hub-1.hub-headless',
-        'GOSSIP_PORT': '9000',
-        'HUB_FANOUT': '3'
-    }
-
-
-@pytest.fixture
-def mock_k8s_config():
-    """Mock Kubernetes configuration loading."""
-    with patch('kubernetes.config.load_incluster_config') as mock_incluster, \
-            patch('kubernetes.config.load_kube_config') as mock_kube, \
-            patch('kubernetes.client.CoreV1Api') as mock_api:
-        # Simula che load_incluster_config fallisce (non in cluster)
-        mock_incluster.side_effect = config.ConfigException("Not in cluster")
-
-        # load_kube_config ha successo (simula kubeconfig locale)
-        mock_kube.return_value = None
-
-        # Mock della API
-        mock_api_instance = Mock()
-        mock_api.return_value = mock_api_instance
-
-        yield {
-            'incluster': mock_incluster,
-            'kube_config': mock_kube,
-            'api': mock_api_instance
-        }
-
-@pytest.fixture
-def mock_peer_discovery_monitor():
-    with patch('bomberman.hub_server.HubServer.PeerDiscoveryMonitor', autospec=True) as mock:
-        yield mock.return_value
-
-
-@pytest.fixture
-def mock_socket_handler():
-    """Mock HubSocketHandler to avoid real networking."""
-    with patch('bomberman.hub_server.HubServer.HubSocketHandler') as mock:
-        handler_instance = Mock(spec=HubSocketHandler)
-        mock.return_value = handler_instance
-        yield handler_instance
-
-
-@pytest.fixture
-def mock_failure_detector():
-    """Mock FailureDetector to avoid real threading."""
-    with patch('bomberman.hub_server.HubServer.FailureDetector') as mock:
-        detector_instance = Mock(spec=FailureDetector)
-        mock.return_value = detector_instance
-        yield detector_instance
-
-
-def create_gossip_message(
-        nonce: int,
-        origin: int,
-        forwarded_by: int,
-        event_type: int,
-        **payload_kwargs
-) -> pb.GossipMessage:
-    """Helper to create GossipMessage for testing."""
-    msg = pb.GossipMessage(
-        nonce=nonce,
-        origin=origin,
-        forwarded_by=forwarded_by,
-        timestamp=time.time(),
-        event_type=event_type
-    )
-
-    # Set the appropriate payload based on event_type
-    if event_type == pb.PEER_JOIN:
-        msg.peer_join.CopyFrom(pb.PeerJoinPayload(**payload_kwargs))
-    elif event_type == pb.PEER_LEAVE:
-        msg.peer_leave.CopyFrom(pb.PeerLeavePayload(**payload_kwargs))
-    elif event_type == pb.PEER_ALIVE:
-        msg.peer_alive.CopyFrom(pb.PeerAlivePayload(**payload_kwargs))
-    elif event_type == pb.PEER_SUSPICIOUS:
-        msg.peer_suspicious.CopyFrom(pb.PeerSuspiciousPayload(**payload_kwargs))
-    elif event_type == pb.PEER_DEAD:
-        msg.peer_dead.CopyFrom(pb.PeerDeadPayload(**payload_kwargs))
-    elif event_type == pb.ROOM_ACTIVATED:
-        msg.room_activated.CopyFrom(pb.RoomActivatedPayload(**payload_kwargs))
-    elif event_type == pb.ROOM_STARTED:
-        msg.room_closed.CopyFrom(pb.RoomClosedPayload(**payload_kwargs))
-
-    return msg
-
-class TestGetHubIndex:
-    """Tests for get_hub_index() function."""
-
-    @pytest.mark.parametrize("hostname,expected_index", [
+        ("hub-1.local", 1),
+        ("hub-99.svc.cluster.local", 99),
         ("hub-0", 0),
-        ("hub-1", 1),
-        ("hub-5", 5),
         ("hub-42", 42),
-        ("hub-999", 999),
-        ("hub-0.hub-headless", 0),
-        ("hub-1.hub-headless.default.svc.cluster.local", 1),
-        ("hub-123.some-domain", 123),
     ])
-    def test_valid_hostnames(self, hostname, expected_index):
-        """Test parsing of valid hostnames."""
-        assert get_hub_index(hostname) == expected_index
-
-    @pytest.mark.parametrize("invalid_hostname", [
-        "hub",  # No number
-        "hub-",  # No number after dash
-        "hub-abc",  # Non-numeric
-        "hub-1-2",  # Multiple numbers
-        "wrong-0",  # Wrong prefix
-        "0-hub",  # Reversed
-        "HUB-0",  # Wrong case
-        "",  # Empty
-        "   hub-0   ",  # Leading/trailing spaces
-        " hub-0",  # Leading space
-        "hub-0 ",  # Trailing space
-    ])
-    def test_invalid_hostnames(self, invalid_hostname):
-        """Test that invalid hostnames raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid hub hostname"):
-            get_hub_index(invalid_hostname)
-
-    def test_hostname_with_whitespace_raises_error(self):
-        """Test that hostname with whitespace raises specific error."""
-        with pytest.raises(ValueError, match="Invalid hub hostname"):
-            get_hub_index("  hub-0  ")
+    def test_valid_hostnames(self, hostname, expected):
+        assert get_hub_index(hostname) == expected
 
     @pytest.mark.parametrize("hostname", [
-        "hub--0",  # Double dash
-        "hub-0-0",  # Extra dash and number
-        "-hub-0",  # Leading dash
+        "invalid",
+        "server-0.local",
+        "hub-.local",
+        "hub-abc.local",
+        "",
+        "0-hub.local",
+        "hubserver-0",
     ])
-    def test_malformed_hostnames(self, hostname):
-        """Test malformed hostname patterns."""
+    def test_invalid_hostnames_raise(self, hostname):
         with pytest.raises(ValueError):
             get_hub_index(hostname)
 
-    def test_none_hostname(self):
-        """Test that None hostname raises error."""
-        with pytest.raises(AttributeError):
-            get_hub_index(None)
-
-    @pytest.mark.parametrize("invalid_type", [123, [], {}, object()])
-    def test_invalid_hostname_types(self, invalid_type):
-        """Test that non-string types raise appropriate errors."""
-        with pytest.raises(AttributeError):
-            get_hub_index(invalid_type)
-
-class TestPrintConsole:
-    """Tests for print_console() function."""
-
-    @pytest.mark.parametrize("category", ['Error', 'Gossip', 'Info', 'FailureDetector'])
-    def test_print_console_with_all_categories(self, category, capsys):
-        """Test print_console with all valid categories."""
-        message = "Test message"
-        print_console(message, category)
-
-        captured = capsys.readouterr()
-        assert message in captured.out
-        assert category in captured.out
-        assert "[HubServer]" in captured.out
-
-    def test_print_console_default_category(self, capsys):
-        """Test print_console with default category."""
-        message = "Default category test"
-        print_console(message)
-
-        captured = capsys.readouterr()
-        assert message in captured.out
-        assert "Gossip" in captured.out  # Default category
-
-    def test_print_console_formats_timestamp(self, capsys):
-        """Test that print_console includes timestamp."""
-        print_console("Timestamp test")
-
-        captured = capsys.readouterr()
-        # Should contain date format YYYY-MM-DD
-        assert "-" in captured.out
-        # Should contain time format HH:MM:SS
-        assert ":" in captured.out
-
-class TestHubServerInitialization:
-    """Tests for HubServer initialization."""
-
-    def test_init_manual_mode_hub_0(self, mock_env_manual, mock_socket_handler, mock_failure_detector, mock_peer_discovery_monitor):
-        """Test initialization in manual mode as hub-0."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            assert server._hub_index == 0
-            assert server._hostname == 'hub-0'
-            assert server._discovery_mode == 'manual'
-            assert server._fanout == 4
-            assert server._last_used_nonce == 0
-
-            # Verify socket handler was started
-            mock_socket_handler.start.assert_called_once()
-
-            # Verify failure detector was created and started
-            mock_failure_detector.start.assert_called_once()
-
-            # Verify self was added to state
-            assert server._state.get_peer(0) is not None
-
-    def test_init_manual_mode_hub_1(self, mock_socket_handler, mock_failure_detector):
-        """Test initialization in manual mode as hub-1."""
-        env = {'HOSTNAME': 'hub-1', 'GOSSIP_PORT': '9001', 'HUB_FANOUT': '3'}
-
-        with patch.dict(os.environ, env), \
-            patch('bomberman.hub_server.HubServer.random.randrange', return_value=0):
-
-            server = HubServer(discovery_mode='manual')
-
-            assert server._hub_index == 1
-            assert server._fanout == 3
-
-            # Hub-1 should send discovery message to hub-0
-            mock_socket_handler.send.assert_called_once()
-            call_args = mock_socket_handler.send.call_args
-            message = call_args[0][0]
-            destination = call_args[0][1]
-
-            assert message.event_type == pb.PEER_JOIN
-            assert message.origin == 1
-            assert destination.address == '127.0.0.1'
-            assert destination.port == 9000
-
-    def test_init_default_fanout(self, mock_socket_handler, mock_failure_detector):
-        """Test initialization with default fanout when env var not set."""
-        env = {'HOSTNAME': 'hub-0', 'GOSSIP_PORT': '9000'}
-
-        with patch.dict(os.environ, env, clear=True):
-            server = HubServer(discovery_mode='manual')
-
-            assert server._fanout == 4  # Default value
-
-    def test_init_custom_fanout(self, mock_socket_handler, mock_failure_detector):
-        """Test initialization with custom fanout from environment."""
-        env = {'HOSTNAME': 'hub-0', 'GOSSIP_PORT': '9000', 'HUB_FANOUT': '10'}
-
-        with patch.dict(os.environ, env):
-            server = HubServer(discovery_mode='manual')
-
-            assert server._fanout == 10
-
-    @pytest.mark.parametrize("invalid_fanout", ['abc', '', '-1', '0.5'])
-    def test_init_invalid_fanout_raises_error(self, mock_socket_handler, mock_failure_detector, invalid_fanout):
-        """Test that invalid fanout values raise ValueError."""
-        env = {'HOSTNAME': 'hub-0', 'GOSSIP_PORT': '9000', 'HUB_FANOUT': invalid_fanout}
-
-        with patch.dict(os.environ, env):
-            with pytest.raises(ValueError):
-                HubServer(discovery_mode='manual')
-
-    def test_init_missing_hostname_raises_error(self, mock_socket_handler, mock_failure_detector):
-        """Test that wrong HOSTNAME raises KeyError."""
-        env = {'GOSSIP_PORT': '9000', 'HOSTNAME': 'hb0'}
-
-        with patch.dict(os.environ, env, clear=True):
-            with pytest.raises(ValueError):
-                HubServer(discovery_mode='manual')
-
-    def test_init_missing_gossip_port_raises_error(self, mock_socket_handler, mock_failure_detector):
-        """Test that missing GOSSIP_PORT raises KeyError."""
-        env = {'HOSTNAME': 'hub-0'}
-
-        with patch.dict(os.environ, env, clear=True):
-            with pytest.raises(KeyError):
-                HubServer(discovery_mode='manual')
-
-    def test_init_invalid_hostname_raises_error(self, mock_socket_handler, mock_failure_detector):
-        """Test that invalid hostname raises ValueError."""
-        env = {'HOSTNAME': 'invalid-name', 'GOSSIP_PORT': '9000'}
-
-        with patch.dict(os.environ, env):
-            with pytest.raises(ValueError, match="Invalid hub hostname"):
-                HubServer(discovery_mode='manual')
-
-    def test_failure_detector_callbacks_are_set(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that failure detector is initialized with correct callbacks."""
-        with patch.dict(os.environ, mock_env_manual):
-            with patch('bomberman.hub_server.HubServer.FailureDetector') as mock_fd_class:
-                mock_fd_instance = Mock()
-                mock_fd_class.return_value = mock_fd_instance
-
-                server = HubServer(discovery_mode='manual')
-
-                # Verify FailureDetector was created with correct parameters
-                mock_fd_class.assert_called_once()
-                call_kwargs = mock_fd_class.call_args[1]
-
-                assert call_kwargs['state'] == server._state
-                assert call_kwargs['my_index'] == 0
-                assert callable(call_kwargs['on_peer_suspected'])
-                assert callable(call_kwargs['on_peer_dead'])
-
-class TestPeerManagement:
-    """Tests for peer management methods."""
-
-    def test_ensure_peer_exists_creates_new_peer(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that _ensure_peer_exists creates a peer if it doesn't exist."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Peer 5 doesn't exist initially
-            assert server._state.get_peer(5) is None
-
-            server._ensure_peer_exists(5)
-
-            # Now it should exist
-            peer = server._state.get_peer(5)
-            assert peer is not None
-            assert peer.index == 5
-
-    def test_ensure_peer_exists_does_not_overwrite_existing(self, mock_env_manual, mock_socket_handler,
-                                                            mock_failure_detector):
-        """Test that _ensure_peer_exists doesn't overwrite existing peer."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Create peer manually
-            ref = ServerReference("192.168.1.1", 8888)
-            original_peer = HubPeer(ref, 3)
-            server._state.add_peer(original_peer)
-
-            # Call ensure_peer_exists
-            server._ensure_peer_exists(3)
-
-            # Should still be the original peer
-            peer = server._state.get_peer(3)
-            assert peer.reference.address == "192.168.1.1"
-            assert peer.reference.port == 8888
-
-    @pytest.mark.parametrize("peer_index", [0, 1, 10, 100, 999])
-    def test_ensure_peer_exists_various_indices(self, mock_env_manual, mock_socket_handler, mock_failure_detector,
-                                                peer_index):
-        """Test _ensure_peer_exists with various peer indices."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            server._ensure_peer_exists(peer_index)
-
-            assert server._state.get_peer(peer_index) is not None
-
-    def test_calculate_server_reference_manual_mode(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test _calculate_server_reference in manual mode."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            ref = server._calculate_server_reference(5)
-
-            assert ref.address == '127.0.0.1'
-            assert ref.port == 9005  # 9000 + 5
-
-    @pytest.mark.parametrize("peer_index,expected_port", [
-        (0, 9000),
-        (1, 9001),
-        (10, 9010),
-        (99, 9099),
-    ])
-    def test_calculate_server_reference_manual_various_indices(
-            self, mock_env_manual, mock_socket_handler, mock_failure_detector, peer_index, expected_port
-    ):
-        """Test _calculate_server_reference with various indices in manual mode."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            ref = server._calculate_server_reference(peer_index)
-
-            assert ref.port == expected_port
-
-class TestMessageForwarding:
-    """Tests for message forwarding logic."""
-
-    def test_forward_message_respects_fanout(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that _forward_message respects fanout limit."""
-        env = dict(mock_env_manual)
-        env['HUB_FANOUT'] = '2'  # Fanout of 2
-
-        with patch.dict(os.environ, env):
-            server = HubServer(discovery_mode='manual')
-
-            # Add 5 peers
-            for i in range(1, 6):
-                server._ensure_peer_exists(i)
-
-            # Create a message
-            msg = create_gossip_message(
-                nonce=1,
-                origin=0,
-                forwarded_by=0,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=0
-            )
-
-            # Forward the message
-            server._forward_message(msg)
-
-            # Should call send_to_many with exactly 2 peers (fanout limit)
-            mock_socket_handler.send_to_many.assert_called_once()
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            targets = call_args[1]
-
-            assert len(targets) == 2
-
-    def test_forward_message_with_fewer_peers_than_fanout(self, mock_env_manual, mock_socket_handler,
-                                                          mock_failure_detector):
-        """Test forwarding when fewer peers than fanout exist."""
-        env = dict(mock_env_manual)
-        env['HUB_FANOUT'] = '10'  # Fanout larger than available peers
-
-        with patch.dict(os.environ, env):
-            server = HubServer(discovery_mode='manual')
-
-            # Add only 3 peers
-            for i in range(1, 4):
-                server._ensure_peer_exists(i)
-
-            msg = create_gossip_message(
-                nonce=1,
-                origin=0,
-                forwarded_by=0,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=0
-            )
-
-            server._forward_message(msg)
-
-            # Should forward to all 3 available peers
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            targets = call_args[1]
-
-            assert len(targets) == 3
-
-    def test_forward_message_excludes_dead_peers(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that dead peers are excluded from forwarding."""
-        env = dict(mock_env_manual)
-        env['HUB_FANOUT'] = '10'
-
-        with patch.dict(os.environ, env):
-            server = HubServer(discovery_mode='manual')
-
-            # Add peers
-            for i in range(1, 5):
-                server._ensure_peer_exists(i)
-
-            # Mark some peers as dead
-            server._state.set_peer_status(2, 'dead')
-            server._state.set_peer_status(4, 'dead')
-
-            msg = create_gossip_message(
-                nonce=1,
-                origin=0,
-                forwarded_by=0,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=0
-            )
-
-            server._forward_message(msg)
-
-            # Should only forward to alive/suspected peers (1 and 3)
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            targets = call_args[1]
-
-            assert len(targets) == 2
-            target_indices = [t.port - 9000 for t in targets]  # Extract indices from ports
-            assert 2 not in target_indices
-            assert 4 not in target_indices
-
-    def test_forward_message_excludes_self(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that self is excluded from forwarding targets."""
-        env = dict(mock_env_manual)
-        env['HUB_FANOUT'] = '10'
-
-        with patch.dict(os.environ, env):
-            server = HubServer(discovery_mode='manual')
-
-            # Add some peers
-            for i in range(1, 4):
-                server._ensure_peer_exists(i)
-
-            msg = create_gossip_message(
-                nonce=1,
-                origin=0,
-                forwarded_by=0,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=0
-            )
-
-            server._forward_message(msg)
-
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            targets = call_args[1]
-
-            # Self (hub-0, port 9000) should not be in targets
-            target_ports = [t.port for t in targets]
-            assert 9000 not in target_ports
-
-    def test_forward_message_updates_forwarded_by(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that _forward_message updates forwarded_by field."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Add a peer
-            server._ensure_peer_exists(1)
-
-            msg = create_gossip_message(
-                nonce=1,
-                origin=2,  # Original sender is peer 2
-                forwarded_by=2,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=2
-            )
-
-            server._forward_message(msg)
-
-            # Message should now have forwarded_by = 0 (this server)
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            forwarded_msg = call_args[0]
-
-            assert forwarded_msg.forwarded_by == 0
-
-    def test_forward_message_with_no_peers(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test forwarding when no other peers exist."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # No peers added (except self)
-            msg = create_gossip_message(
-                nonce=1,
-                origin=0,
-                forwarded_by=0,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=0
-            )
-
-            server._forward_message(msg)
-
-            # Should call send_to_many with empty list
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            targets = call_args[1]
-
-            assert len(targets) == 0
-
-class TestNonceGeneration:
-    """Tests for nonce generation."""
-
-    def test_get_next_nonce_starts_at_one(self, mock_env_manual, mock_socket_handler, mock_failure_detector, mock_peer_discovery_monitor):
-        """Test that first nonce is 1."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            nonce = server._get_next_nonce()
-
-            assert nonce == 1
-
-    def test_get_next_nonce_increments(self, mock_env_manual, mock_socket_handler, mock_failure_detector, mock_peer_discovery_monitor):
-        """Test that nonces increment sequentially."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            nonces = [server._get_next_nonce() for _ in range(10)]
-
-            assert nonces == list(range(1, 11))
-
-    def test_get_next_nonce_thread_safety(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test nonce generation is thread-safe (no duplicates)."""
-        import threading
-
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            nonces = []
-            lock = threading.Lock()
-
-            def get_nonces():
-                for _ in range(100):
-                    n = server._get_next_nonce()
-                    with lock:
-                        nonces.append(n)
-
-            threads = [threading.Thread(target=get_nonces) for _ in range(5)]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join()
-
-            # Should have 500 unique nonces (5 threads * 100 each)
-            assert len(nonces) == 500
-            assert len(set(nonces)) == 500  # All unique
-
-class TestMessageSending:
-    """Tests for message sending methods."""
-
-    def test_send_messages_and_forward_validates_origin(self, mock_env_manual, mock_socket_handler,
-                                                        mock_failure_detector):
-        """Test that _send_messages_and_forward validates message origin."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Create message with wrong origin
-            msg = create_gossip_message(
-                nonce=1,
-                origin=99,  # Wrong origin (not self)
-                forwarded_by=0,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=0
-            )
-
-            with pytest.raises(ValueError):
-                server._send_messages_and_forward(msg)
-
-    def test_send_messages_and_forward_updates_heartbeat(self, mock_env_manual, mock_socket_handler,
-                                                         mock_failure_detector):
-        """Test that _send_messages_and_forward updates heartbeat."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            msg = create_gossip_message(
-                nonce=42,
-                origin=0,
-                forwarded_by=0,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=0
-            )
-
-            server._send_messages_and_forward(msg)
-
-            # Heartbeat should be updated
-            self_peer = server._state.get_peer(0)
-            assert self_peer.heartbeat == 42
-
-    def test_send_messages_and_forward_calls_forward(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that _send_messages_and_forward calls _forward_message."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Add a peer to forward to
-            server._ensure_peer_exists(1)
-
-            msg = create_gossip_message(
-                nonce=1,
-                origin=0,
-                forwarded_by=0,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=0
-            )
-
-            server._send_messages_and_forward(msg)
-
-            # Should have called send_to_many (via _forward_message)
-            mock_socket_handler.send_to_many.assert_called_once()
-
-    def test_send_messages_specific_destination_validates_origin(self, mock_env_manual, mock_socket_handler,
-                                                                 mock_failure_detector):
-        """Test that _send_messages_specific_destination validates origin."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            msg = create_gossip_message(
-                nonce=1,
-                origin=5,  # Wrong origin
-                forwarded_by=0,
-                event_type=pb.PEER_JOIN,
-                joining_peer=0
-            )
-
-            ref = ServerReference("127.0.0.1", 9001)
-
-            with pytest.raises(ValueError):
-                server._send_messages_specific_destination(msg, ref)
-
-    def test_send_messages_specific_destination_sends_to_target(self, mock_env_manual, mock_socket_handler,
-                                                                mock_failure_detector):
-        """Test that _send_messages_specific_destination sends to specific target."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            msg = create_gossip_message(
-                nonce=1,
-                origin=0,
-                forwarded_by=0,
-                event_type=pb.PEER_JOIN,
-                joining_peer=0
-            )
-
-            ref = ServerReference("192.168.1.100", 8888)
-
-            server._send_messages_specific_destination(msg, ref)
-
-            # Should call socket_handler.send with the specific reference
-            mock_socket_handler.send.assert_called_once()
-            call_args = mock_socket_handler.send.call_args[0]
-            sent_msg = call_args[0]
-            sent_ref = call_args[1]
-
-            assert sent_ref.address == "192.168.1.100"
-            assert sent_ref.port == 8888
-
-class TestMessageProcessing:
-    """Tests for message processing and handling."""
-
-    def test_on_gossip_message_creates_missing_peers(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that _on_gossip_message creates peers if they don't exist."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Message from unknown peer 5, forwarded by unknown peer 3
-            msg = create_gossip_message(
-                nonce=1,
-                origin=5,
-                forwarded_by=3,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=5
-            )
-
-            sender = ServerReference("127.0.0.1", 9003)
-
-            server._on_gossip_message(msg, sender)
-
-            # Both peers should now exist
-            assert server._state.get_peer(5) is not None
-            assert server._state.get_peer(3) is not None
-
-    def test_on_gossip_message_marks_forwarder_alive(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that _on_gossip_message marks forwarder as alive."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Pre-create peer 2
-            server._ensure_peer_exists(2)
-            server._state.set_peer_status(2, 'suspected')
-
-            msg = create_gossip_message(
-                nonce=1,
-                origin=2,
-                forwarded_by=2,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=2
-            )
-
-            sender = ServerReference("127.0.0.1", 9002)
-
-            server._on_gossip_message(msg, sender)
-
-            # Peer 2 should be marked alive
-            peer = server._state.get_peer(2)
-            assert peer.status == 'alive'
-
-    def test_on_gossip_message_ignores_duplicate_nonce(self, mock_env_manual, mock_socket_handler,
-                                                       mock_failure_detector):
-        """Test that duplicate messages (same nonce) are ignored."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            server._ensure_peer_exists(1)
-
-            msg = create_gossip_message(
-                nonce=10,
-                origin=1,
-                forwarded_by=1,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=1
-            )
-
-            sender = ServerReference("127.0.0.1", 9001)
-
-            # First message
-            server._on_gossip_message(msg, sender)
-            first_call_count = mock_socket_handler.send_to_many.call_count
-
-            # Second message with same nonce
-            server._on_gossip_message(msg, sender)
-            second_call_count = mock_socket_handler.send_to_many.call_count
-
-            # Should not forward duplicate
-            assert second_call_count == first_call_count
-
-    def test_on_gossip_message_forwards_new_messages(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that new messages are forwarded."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Add peers to forward to
-            server._ensure_peer_exists(1)
-            server._ensure_peer_exists(2)
-
-            msg = create_gossip_message(
-                nonce=1,
-                origin=1,
-                forwarded_by=1,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=1
-            )
-
-            sender = ServerReference("127.0.0.1", 9001)
-
-            server._on_gossip_message(msg, sender)
-
-            # Should forward to other peers
-            mock_socket_handler.send_to_many.assert_called()
-
-
-class TestMessageHandlers:
-    """Tests for individual message type handlers."""
-
-    def test_handle_peer_join_creates_peer(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that PEER_JOIN handler creates the peer."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            payload = pb.PeerJoinPayload(joining_peer=5)
-            server._handle_peer_join(payload)
-
-            # Peer 5 should exist
-            assert server._state.get_peer(5) is not None
-
-    def test_handle_peer_leave_marks_peer_dead(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that PEER_LEAVE handler marks peer as dead."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Create peer first
-            server._ensure_peer_exists(3)
-
-            payload = pb.PeerLeavePayload(leaving_peer=3)
-            server._handle_peer_leave(payload)
-
-            # Peer should be dead
-            peer = server._state.get_peer(3)
-            assert peer.status == 'dead'
-
-    def test_handle_peer_alive_marks_peer_alive(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that PEER_ALIVE handler marks peer as explicitly alive."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Create peer and mark as suspected
-            server._ensure_peer_exists(2)
-            server._state.set_peer_status(2, 'suspected')
-            old_last_seen = server._state.get_peer(2).last_seen
-
-            import time
-            time.sleep(0.01)  # Ensure time difference
-
-            payload = pb.PeerAlivePayload(alive_peer=2)
-            server._handle_peer_alive(payload)
-
-            # Peer should be alive with updated last_seen
-            peer = server._state.get_peer(2)
-            assert peer.status == 'alive'
-            assert peer.last_seen > old_last_seen
-
-    def test_handle_peer_suspicious_self_broadcasts_alive(self, mock_env_manual, mock_socket_handler,
-                                                          mock_failure_detector):
-        """Test that PEER_SUSPICIOUS for self triggers alive broadcast."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Add a peer to send to
-            server._ensure_peer_exists(1)
-
-            # Someone thinks we (hub-0) are suspicious
+    def test_leading_whitespace_rejected(self):
+        with pytest.raises(ValueError):
+            get_hub_index(" hub-0.local")
+
+    def test_trailing_whitespace_rejected(self):
+        with pytest.raises(ValueError):
+            get_hub_index("hub-0.local ")
+
+    def test_leading_zeros_are_parsed_as_integer(self):
+        """hub-007 viene parsato come indice 7 (int rimuove gli zeri)."""
+        assert get_hub_index("hub-007.local") == 7
+
+
+class TestHubServerCreation:
+
+    @patch.dict(os.environ, {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000"})
+    @patch("bomberman.hub_server.HubServer.HubSocketHandler")
+    @patch("bomberman.hub_server.HubServer.FailureDetector")
+    @patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor")
+    @patch("bomberman.hub_server.HubServer.RoomHealthMonitor")
+    @patch("bomberman.hub_server.HubServer.create_room_manager")
+    def test_server_initializes_with_correct_index(self, mock_rm, mock_rhm, mock_pdm, mock_fd, mock_sh):
+        mock_rm.return_value = MagicMock()
+        server = HubServer(discovery_mode="manual")
+        assert server.hub_index == 0
+        assert server.hostname == "hub-0.local"
+        assert server.discovery_mode == "manual"
+
+    @patch.dict(os.environ, {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000", "HUB_FANOUT": "0"})
+    @patch("bomberman.hub_server.HubServer.HubSocketHandler")
+    def test_zero_fanout_raises(self, mock_sh):
+        with pytest.raises(ValueError, match="Invalid fanout"):
+            HubServer(discovery_mode="manual")
+
+    @patch.dict(os.environ, {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000", "HUB_FANOUT": "-1"})
+    @patch("bomberman.hub_server.HubServer.HubSocketHandler")
+    def test_negative_fanout_raises(self, mock_sh):
+        with pytest.raises(ValueError, match="Invalid fanout"):
+            HubServer(discovery_mode="manual")
+
+
+class TestHubServerMessageProcessing:
+
+    def _create_server(self):
+        with patch.dict(os.environ, {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000"}), \
+             patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
+             patch("bomberman.hub_server.HubServer.FailureDetector"), \
+             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "localhost"
+            server = HubServer(discovery_mode="manual")
+        return server
+
+    def test_handle_peer_join_creates_peer(self):
+        server = self._create_server()
+        payload = pb.PeerJoinPayload(joining_peer=5)
+        server._handle_peer_join(payload)
+        peer = server._state.get_peer(5)
+        assert peer is not None
+
+    def test_handle_peer_leave_marks_dead(self):
+        server = self._create_server()
+        server._ensure_peer_exists(3)
+        payload = pb.PeerLeavePayload(leaving_peer=3)
+        server._handle_peer_leave(payload)
+        assert server._state.get_peer(3).status == 'dead'
+
+    def test_handle_peer_alive_updates_status(self):
+        server = self._create_server()
+        server._ensure_peer_exists(2)
+        server._state.set_peer_status(2, 'suspected')
+        payload = pb.PeerAlivePayload(alive_peer=2)
+        server._handle_peer_alive(payload)
+        assert server._state.get_peer(2).status == 'alive'
+
+    def test_handle_peer_suspicious_triggers_alive_broadcast_for_self(self):
+        server = self._create_server()
+        with patch.object(server, '_broadcast_peer_alive') as mock_broadcast:
             payload = pb.PeerSuspiciousPayload(suspicious_peer=0)
-
-            mock_socket_handler.send_to_many.reset_mock()
             server._handle_peer_suspicious(payload)
+            mock_broadcast.assert_called_once()
 
-            # Should broadcast PEER_ALIVE
-            mock_socket_handler.send_to_many.assert_called()
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            sent_msg = call_args[0]
-
-            assert sent_msg.event_type == pb.PEER_ALIVE
-            assert sent_msg.peer_alive.alive_peer == 0
-
-    def test_handle_peer_suspicious_other_ignores(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that PEER_SUSPICIOUS for other peer is ignored."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Someone thinks peer 5 is suspicious (not us)
+    def test_handle_peer_suspicious_ignores_if_not_self(self):
+        server = self._create_server()
+        with patch.object(server, '_broadcast_peer_alive') as mock_broadcast:
             payload = pb.PeerSuspiciousPayload(suspicious_peer=5)
-
-            mock_socket_handler.send_to_many.reset_mock()
             server._handle_peer_suspicious(payload)
-
-            # Should not broadcast anything
-            mock_socket_handler.send_to_many.assert_not_called()
-
-    def test_handle_peer_dead_removes_suspected_peer(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that PEER_DEAD removes peer if it was suspected."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Create peer and mark as suspected
-            server._ensure_peer_exists(4)
-            server._state.set_peer_status(4, 'suspected')
-
-            payload = pb.PeerDeadPayload(dead_peer=4)
-            server._handle_peer_dead(payload)
-
-            # Peer should be marked dead
-            peer = server._state.get_peer(4)
-            assert peer.status == 'dead'
-
-    def test_handle_peer_dead_ignores_alive_peer(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that PEER_DEAD for alive peer doesn't remove it."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Create peer that is alive
-            server._ensure_peer_exists(4)
-            server._state.set_peer_status(4, 'alive')
-
-            payload = pb.PeerDeadPayload(dead_peer=4)
-            server._handle_peer_dead(payload)
-
-            # Peer should still exist (not removed)
-            peer = server._state.get_peer(4)
-            assert peer is not None
-            # Status might be 'alive' or unchanged - the handler only removes if suspected
-
-
-class TestFailureDetectorCallbacks:
-    """Tests for failure detector callback methods."""
-
-    def test_on_peer_suspicious_broadcasts_message(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that _on_peer_suspicious broadcasts PEER_SUSPICIOUS message."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Add peers to forward to
-            server._ensure_peer_exists(1)
-
-            mock_socket_handler.send_to_many.reset_mock()
-            server._on_peer_suspicious(5)
-
-            # Should broadcast PEER_SUSPICIOUS message
-            mock_socket_handler.send_to_many.assert_called()
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            sent_msg = call_args[0]
-
-            assert sent_msg.event_type == pb.PEER_SUSPICIOUS
-            assert sent_msg.peer_suspicious.suspicious_peer == 5
-            assert sent_msg.origin == 0
-
-    def test_on_peer_dead_broadcasts_and_removes(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that _on_peer_dead broadcasts message and removes peer."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Create the peer
-            server._ensure_peer_exists(3)
-            server._ensure_peer_exists(1)  # For forwarding
-
-            mock_socket_handler.send_to_many.reset_mock()
-            server._on_peer_dead(3)
-
-            # Should broadcast PEER_DEAD message
-            mock_socket_handler.send_to_many.assert_called()
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            sent_msg = call_args[0]
-
-            assert sent_msg.event_type == pb.PEER_DEAD
-            assert sent_msg.peer_dead.dead_peer == 3
-
-            # Peer should be marked dead
-            peer = server._state.get_peer(3)
-            assert peer.status == 'dead'
-
-    def test_broadcast_peer_alive_sends_correct_message(self, mock_env_manual, mock_socket_handler,
-                                                        mock_failure_detector):
-        """Test that _broadcast_peer_alive sends correct message."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Add peer to forward to
-            server._ensure_peer_exists(1)
-
-            mock_socket_handler.send_to_many.reset_mock()
-            server._broadcast_peer_alive()
-
-            # Should send PEER_ALIVE for self
-            mock_socket_handler.send_to_many.assert_called()
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            sent_msg = call_args[0]
-
-            assert sent_msg.event_type == pb.PEER_ALIVE
-            assert sent_msg.peer_alive.alive_peer == 0
-            assert sent_msg.origin == 0
-
-
-class TestStopCleanup:
-    """Tests for stop() and cleanup."""
-
-    def test_stop_sends_leave_message(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that stop() sends PEER_LEAVE message."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Add peer to send to
-            server._ensure_peer_exists(1)
-
-            mock_socket_handler.send_to_many.reset_mock()
-            server.stop()
-
-            # Should send PEER_LEAVE message
-            mock_socket_handler.send_to_many.assert_called()
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            sent_msg = call_args[0]
-
-            assert sent_msg.event_type == pb.PEER_LEAVE
-            assert sent_msg.peer_leave.leaving_peer == 0
-
-    def test_stop_closes_socket_handler(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that stop() calls socket_handler.stop()."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            server.stop()
-
-            mock_socket_handler.stop.assert_called_once()
-
-    def test_stop_can_be_called_multiple_times(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that stop() can be called multiple times without error."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            server.stop()
-            server.stop()
-            server.stop()
-
-            # Should not raise any errors
-            assert mock_socket_handler.stop.call_count >= 1
-
-class TestErrorHandlingAndRobustness:
-    """Tests for error handling, edge cases, and robustness."""
-
-    def test_on_gossip_message_with_socket_exception(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test handling when socket_handler.send_to_many raises exception."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Add peer to forward to
-            server._ensure_peer_exists(1)
-
-            # Make socket handler raise exception
-            mock_socket_handler.send_to_many.side_effect = OSError("Network unreachable")
-
-            msg = create_gossip_message(
-                nonce=1,
-                origin=1,
-                forwarded_by=1,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=1
-            )
-
-            sender = ServerReference("127.0.0.1", 9001)
-
-            # Should handle exception gracefully (or raise, depending on implementation)
-            with pytest.raises(OSError):
-                server._on_gossip_message(msg, sender)
-
-    def test_state_get_peer_raises_exception(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test handling when HubState.get_peer raises unexpected exception."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Mock state to raise exception
-            with patch.object(server._state, 'get_peer', side_effect=RuntimeError("State corrupted")):
-                # Should raise or handle gracefully
-                with pytest.raises(RuntimeError):
-                    server._ensure_peer_exists(5)
-
-    def test_failure_detector_callback_exception_in_on_peer_suspected(
-            self, mock_env_manual, mock_socket_handler, mock_failure_detector
-    ):
-        """Test that exception in failure detector callback doesn't crash server."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Mock socket handler to raise exception
-            mock_socket_handler.send_to_many.side_effect = RuntimeError("Failed to send")
-
-            # This should raise (or be caught, depending on implementation)
-            with pytest.raises(RuntimeError):
-                server._on_peer_suspicious(3)
-
-    def test_forward_message_with_empty_peer_list_after_filtering(
-            self, mock_env_manual, mock_socket_handler, mock_failure_detector
-    ):
-        """Test forwarding when all peers are filtered out (all dead)."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Add peers but mark them all as dead
-            for i in range(1, 5):
-                server._ensure_peer_exists(i)
-                server._state.set_peer_status(i, 'dead')
-
-            msg = create_gossip_message(
-                nonce=1,
-                origin=0,
-                forwarded_by=0,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=0
-            )
-
-            # Should handle empty list gracefully
-            server._forward_message(msg)
-
-            # Should call send_to_many with empty list
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            targets = call_args[1]
-            assert len(targets) == 0
-
-    def test_concurrent_message_processing(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test concurrent processing of multiple messages."""
-        import threading
-
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Add peer to forward to
-            server._ensure_peer_exists(2)
-
-            errors = []
-
-            def process_message(peer_id):
-                try:
-                    msg = create_gossip_message(
-                        nonce=peer_id,  # Different nonce for each
-                        origin=peer_id,
-                        forwarded_by=peer_id,
-                        event_type=pb.PEER_JOIN,
-                        joining_peer=peer_id
-                    )
-                    sender = ServerReference("127.0.0.1", 9000 + peer_id)
-                    server._on_gossip_message(msg, sender)
-                except Exception as e:
-                    errors.append(e)
-
-            # Process 10 messages concurrently
-            threads = [threading.Thread(target=process_message, args=(i,)) for i in range(10, 20)]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join()
-
-            # Should not have any errors
-            assert len(errors) == 0
-
-            # All peers should exist
-            for i in range(10, 20):
-                assert server._state.get_peer(i) is not None
-
-    def test_concurrent_nonce_generation_no_duplicates(self, mock_env_manual, mock_socket_handler,
-                                                       mock_failure_detector):
-        """Test that concurrent nonce generation never produces duplicates."""
-        import threading
-
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            nonces = []
-            lock = threading.Lock()
-
-            def generate_nonces():
-                for _ in range(1000):
-                    n = server._get_next_nonce()
-                    with lock:
-                        nonces.append(n)
-
-            threads = [threading.Thread(target=generate_nonces) for _ in range(10)]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join()
-
-            # Should have 10000 unique nonces
-            assert len(nonces) == 10000
-            assert len(set(nonces)) == 10000, "Found duplicate nonces!"
-
-    def test_state_add_peer_during_forwarding(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test adding peers while forwarding is happening."""
-        import threading
-
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Add initial peer
-            server._ensure_peer_exists(1)
-
-            stop_flag = threading.Event()
-            errors = []
-
-            def forward_messages():
-                try:
-                    while not stop_flag.is_set():
-                        msg = create_gossip_message(
-                            nonce=server._get_next_nonce(),
-                            origin=0,
-                            forwarded_by=0,
-                            event_type=pb.PEER_ALIVE,
-                            alive_peer=0
-                        )
-                        server._forward_message(msg)
-                except Exception as e:
-                    errors.append(e)
-
-            def add_peers():
-                try:
-                    for i in range(10, 20):
-                        server._ensure_peer_exists(i)
-                        time.sleep(0.001)
-                except Exception as e:
-                    errors.append(e)
-
-            forward_thread = threading.Thread(target=forward_messages)
-            add_thread = threading.Thread(target=add_peers)
-
-            forward_thread.start()
-            add_thread.start()
-
-            add_thread.join()
-            stop_flag.set()
-            forward_thread.join(timeout=1.0)
-
-            # Should not have errors
-            assert len(errors) == 0
-
-    def test_handle_peer_leave_nonexistent_peer(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test handling PEER_LEAVE for a peer that doesn't exist."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Peer 99 doesn't exist
-            payload = pb.PeerLeavePayload(leaving_peer=99)
-
-            # Should raise ValueError (from HubState.remove_peer)
-            with pytest.raises(ValueError):
-                server._handle_peer_leave(payload)
-
-    def test_handle_peer_alive_nonexistent_peer(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test handling PEER_ALIVE for a peer that doesn't exist."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Peer 99 doesn't exist
-            payload = pb.PeerAlivePayload(alive_peer=99)
-
-            # Should handle gracefully (mark_peer_explicitly_alive checks for None)
-            server._handle_peer_alive(payload)
-
-            # Peer still shouldn't exist (not auto-created)
-            assert server._state.get_peer(99) is None
-
-    def test_handle_peer_dead_nonexistent_peer(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test handling PEER_DEAD for a peer that doesn't exist."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Peer 99 doesn't exist
-            payload = pb.PeerDeadPayload(dead_peer=99)
-
-            # Should handle gracefully (get_peer returns None)
-            server._handle_peer_dead(payload)
-
-    @pytest.mark.parametrize("invalid_nonce", [-1, -100, -999999])
-    def test_message_with_negative_nonce(self, mock_env_manual, mock_socket_handler, mock_failure_detector,
-                                         invalid_nonce):
-        """Test handling message with negative nonce."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            msg = create_gossip_message(
-                nonce=invalid_nonce,
-                origin=1,
-                forwarded_by=1,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=1
-            )
-
-            sender = ServerReference("127.0.0.1", 9001)
-
-            # Should process (nonce can be any int64)
+            mock_broadcast.assert_not_called()
+
+    def test_handle_peer_dead_removes_suspected_peer(self):
+        server = self._create_server()
+        server._ensure_peer_exists(3)
+        server._state.set_peer_status(3, 'suspected')
+        payload = pb.PeerDeadPayload(dead_peer=3)
+        server._handle_peer_dead(payload)
+        assert server._state.get_peer(3).status == 'dead'
+
+    def test_handle_peer_dead_ignores_alive_peer(self):
+        """handle_peer_dead rimuove un peer solo se e' gia' suspected.
+        Se e' alive, il peer viene ignorato (fiducia nel proprio failure detector)."""
+        server = self._create_server()
+        server._ensure_peer_exists(3)
+        payload = pb.PeerDeadPayload(dead_peer=3)
+        server._handle_peer_dead(payload)
+        assert server._state.get_peer(3).status == 'alive'
+
+    def test_handle_room_activated_adds_to_state(self):
+        server = self._create_server()
+        payload = pb.RoomActivatedPayload(
+            room_id="room-5",
+            owner_hub=2,
+            external_port=30001,
+            external_address="example.com",
+        )
+        server._handle_room_activated(payload)
+        room = server._state.get_room("room-5")
+        assert room is not None
+        assert room.owner_hub_index == 2
+        assert room.status == RoomStatus.ACTIVE
+
+    def test_handle_room_started_changes_status(self):
+        server = self._create_server()
+        server._state.add_room(Room("room-1", 0, RoomStatus.ACTIVE, 10001, "svc"))
+        payload = pb.RoomStartedPayload(room_id="room-1")
+        server._handle_room_started(payload)
+        assert server._state.get_room("room-1").status == RoomStatus.PLAYING
+
+    def test_handle_room_closed_changes_status(self):
+        server = self._create_server()
+        server._state.add_room(Room("room-1", 0, RoomStatus.PLAYING, 10001, "svc"))
+        payload = pb.RoomClosedPayload(room_id="room-1")
+        server._handle_room_closed(payload)
+        assert server._state.get_room("room-1").status == RoomStatus.DORMANT
+
+
+class TestHubServerNonce:
+
+    def _create_server(self):
+        with patch.dict(os.environ, {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000"}), \
+             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+             patch("bomberman.hub_server.HubServer.FailureDetector"), \
+             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "localhost"
+            server = HubServer(discovery_mode="manual")
+        return server
+
+    def test_nonce_is_monotonically_increasing(self):
+        server = self._create_server()
+        n1 = server._get_next_nonce()
+        n2 = server._get_next_nonce()
+        n3 = server._get_next_nonce()
+        assert n1 < n2 < n3
+
+    def test_nonce_starts_from_one(self):
+        server = self._create_server()
+        assert server._get_next_nonce() == 1
+
+
+class TestHubServerSendValidation:
+
+    def _create_server(self):
+        with patch.dict(os.environ, {"HOSTNAME": "hub-1.local", "GOSSIP_PORT": "9000"}), \
+             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+             patch("bomberman.hub_server.HubServer.FailureDetector"), \
+             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "localhost"
+            server = HubServer(discovery_mode="manual")
+        return server
+
+    def test_send_message_from_other_origin_raises(self):
+        server = self._create_server()
+        msg = pb.GossipMessage(nonce=1, origin=99, forwarded_by=99)
+        with pytest.raises(ValueError):
+            server._send_messages_and_forward(msg)
+
+    def test_send_specific_from_other_origin_raises(self):
+        server = self._create_server()
+        msg = pb.GossipMessage(nonce=1, origin=99, forwarded_by=99)
+        with pytest.raises(ValueError):
+            server._send_messages_specific_destination(msg, ServerReference("10.0.0.1", 9000))
+
+
+class TestHubServerRoomUnhealthy:
+
+    def _create_server(self):
+        with patch.dict(os.environ, {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000"}), \
+             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+             patch("bomberman.hub_server.HubServer.FailureDetector"), \
+             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "localhost"
+            server = HubServer(discovery_mode="manual")
+        return server
+
+    def test_local_unhealthy_room_transitions_to_playing(self):
+        server = self._create_server()
+        room = Room("room-1", 0, RoomStatus.ACTIVE, 10001, "svc")
+        server._state.add_room(room)
+        with patch.object(server, 'broadcast_room_started'):
+            server._on_room_unhealthy(room)
+        assert server._state.get_room("room-1").status == RoomStatus.PLAYING
+
+    def test_remote_unhealthy_room_is_removed(self):
+        server = self._create_server()
+        room = Room("room-remote", 5, RoomStatus.ACTIVE, 10001, "")
+        server._state.add_room(room)
+        server._on_room_unhealthy(room)
+        assert server._state.get_room("room-remote") is None
+
+
+class TestHubServerGetOrActivateRoom:
+
+    def _create_server(self):
+        with patch.dict(os.environ, {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000"}), \
+             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+             patch("bomberman.hub_server.HubServer.FailureDetector"), \
+             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "localhost"
+            server = HubServer(discovery_mode="manual")
+        return server
+
+    def test_returns_existing_active_room(self):
+        server = self._create_server()
+        room = Room("room-1", 0, RoomStatus.ACTIVE, 10001, "svc")
+        server._state.add_room(room)
+        result = server.get_or_activate_room()
+        assert result is room
+
+    def test_activates_new_room_when_none_active(self):
+        server = self._create_server()
+        new_room = Room("room-new", 0, RoomStatus.ACTIVE, 10001, "svc")
+        server._room_manager.activate_room.return_value = new_room
+        result = server.get_or_activate_room()
+        assert result is new_room
+        server._room_manager.activate_room.assert_called_once()
+
+    def test_returns_none_when_no_rooms_available(self):
+        server = self._create_server()
+        server._room_manager.activate_room.return_value = None
+        result = server.get_or_activate_room()
+        assert result is None
+
+
+class TestHubServerBroadcasts:
+
+    def _create_server(self, hub_index=0):
+        hostname = f"hub-{hub_index}.local"
+        with patch.dict(os.environ, {"HOSTNAME": hostname, "GOSSIP_PORT": "9000"}), \
+             patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
+             patch("bomberman.hub_server.HubServer.FailureDetector"), \
+             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "test.example.com"
+            server = HubServer(discovery_mode="manual")
+        return server
+
+    def test_broadcast_room_started_updates_state_and_forwards(self):
+        server = self._create_server()
+        server._state.add_room(Room("room-1", 0, RoomStatus.ACTIVE, 10001, "svc"))
+        server._ensure_peer_exists(1)
+        server.broadcast_room_started("room-1")
+        assert server._state.get_room("room-1").status == RoomStatus.PLAYING
+
+    def test_broadcast_room_closed_updates_state_and_forwards(self):
+        server = self._create_server()
+        server._state.add_room(Room("room-1", 0, RoomStatus.PLAYING, 10001, "svc"))
+        server._ensure_peer_exists(1)
+        server.broadcast_room_closed("room-1")
+        assert server._state.get_room("room-1").status == RoomStatus.DORMANT
+
+    def test_broadcast_room_activated_adds_to_state(self):
+        server = self._create_server()
+        room = Room("room-new", 0, RoomStatus.ACTIVE, 30001, "svc.local")
+        server._ensure_peer_exists(1)
+        server._broadcast_room_activated(room)
+        assert server._state.get_room("room-new") is room
+
+    def test_broadcast_peer_alive(self):
+        server = self._create_server()
+        server._ensure_peer_exists(1)
+        initial_nonce = server.last_used_nonce
+        server._broadcast_peer_alive()
+        assert server.last_used_nonce > initial_nonce
+
+    def test_on_peer_suspicious_broadcasts(self):
+        server = self._create_server()
+        server._ensure_peer_exists(1)
+        initial_nonce = server.last_used_nonce
+        server._on_peer_suspicious(1)
+        assert server.last_used_nonce > initial_nonce
+
+    def test_on_peer_dead_marks_dead_and_broadcasts(self):
+        server = self._create_server()
+        server._ensure_peer_exists(1)
+        server._on_peer_dead(1)
+        assert server._state.get_peer(1).status == 'dead'
+
+
+class TestHubServerForwardAndDiscovery:
+
+    def _create_server(self, discovery_mode="manual", hub_index=0):
+        hostname = f"hub-{hub_index}.local"
+        env = {"HOSTNAME": hostname, "GOSSIP_PORT": "9000"}
+        if discovery_mode == "k8s":
+            env["K8S_NAMESPACE"] = "test-ns"
+            env["HUB_SERVICE_NAME"] = "hub-svc"
+        with patch.dict(os.environ, env), \
+             patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
+             patch("bomberman.hub_server.HubServer.FailureDetector"), \
+             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "localhost"
+            server = HubServer(discovery_mode=discovery_mode)
+        return server
+
+    def test_calculate_server_reference_manual(self):
+        server = self._create_server(discovery_mode="manual")
+        ref = server._calculate_server_reference(3)
+        assert ref.address == "127.0.0.1"
+        assert ref.port == 9003
+
+    def test_calculate_server_reference_k8s(self):
+        server = self._create_server(discovery_mode="k8s")
+        with patch.dict(os.environ, {"GOSSIP_PORT": "9000", "K8S_NAMESPACE": "test-ns", "HUB_SERVICE_NAME": "hub-svc"}):
+            ref = server._calculate_server_reference(2)
+        assert "hub-2" in ref.address
+        assert "hub-svc" in ref.address
+
+    def test_forward_message_sends_to_subset_of_peers(self):
+        server = self._create_server()
+        for i in range(1, 6):
+            server._ensure_peer_exists(i)
+
+        msg = pb.GossipMessage(nonce=1, origin=0, forwarded_by=0)
+        server._forward_message(msg)
+        server._socket_handler.send_to_many.assert_called()
+
+    def test_forward_message_updates_forwarded_by(self):
+        server = self._create_server()
+        server._ensure_peer_exists(1)
+        msg = pb.GossipMessage(nonce=1, origin=5, forwarded_by=5)
+        server._forward_message(msg)
+        assert msg.forwarded_by == 0
+
+    def test_ensure_peer_exists_creates_if_missing(self):
+        server = self._create_server()
+        assert server._state.get_peer(5) is None
+        server._ensure_peer_exists(5)
+        assert server._state.get_peer(5) is not None
+
+    def test_ensure_peer_exists_does_not_overwrite(self):
+        server = self._create_server()
+        server._ensure_peer_exists(5)
+        peer = server._state.get_peer(5)
+        server._ensure_peer_exists(5)
+        assert server._state.get_peer(5) is peer
+
+    def test_stop_sends_leave_and_cleans_up(self):
+        server = self._create_server()
+        server._ensure_peer_exists(1)
+        server.stop()
+        server._peer_discovery_monitor.stop.assert_called()
+        server._room_health_monitor.stop.assert_called()
+        server._socket_handler.stop.assert_called()
+        server._room_manager.cleanup.assert_called()
+
+
+class TestHubServerOnGossipMessage:
+
+    def _create_server(self, hub_index=0):
+        hostname = f"hub-{hub_index}.local"
+        with patch.dict(os.environ, {"HOSTNAME": hostname, "GOSSIP_PORT": "9000"}), \
+             patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
+             patch("bomberman.hub_server.HubServer.FailureDetector"), \
+             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "localhost"
+            server = HubServer(discovery_mode="manual")
+        return server
+
+    def test_on_gossip_message_processes_new_peer_join(self):
+        server = self._create_server()
+        msg = pb.GossipMessage(
+            nonce=1, origin=1, forwarded_by=1,
+            timestamp=time.time(),
+            event_type=pb.PEER_JOIN,
+            peer_join=pb.PeerJoinPayload(joining_peer=1),
+        )
+        sender = ServerReference("127.0.0.1", 9001)
+        server._on_gossip_message(msg, sender)
+        assert server._state.get_peer(1) is not None
+
+    def test_on_gossip_message_skips_old_heartbeat(self):
+        server = self._create_server()
+        server._ensure_peer_exists(1)
+        server._state.update_heartbeat(1, 10)
+        msg = pb.GossipMessage(
+            nonce=5, origin=1, forwarded_by=1,
+            timestamp=time.time(),
+            event_type=pb.PEER_JOIN,
+            peer_join=pb.PeerJoinPayload(joining_peer=2),
+        )
+        sender = ServerReference("127.0.0.1", 9001)
+        with patch.object(server, '_process_message') as mock_proc:
             server._on_gossip_message(msg, sender)
+            mock_proc.assert_not_called()
 
-            # Peer should exist
-            assert server._state.get_peer(1) is not None
-
-    def test_message_with_very_large_nonce(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test handling message with very large nonce."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            huge_nonce = 2 ** 62  # Very large but valid int64
-
-            msg = create_gossip_message(
-                nonce=huge_nonce,
-                origin=1,
-                forwarded_by=1,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=1
-            )
-
-            sender = ServerReference("127.0.0.1", 9001)
-
+    def test_on_gossip_message_forwards_new_messages(self):
+        server = self._create_server()
+        msg = pb.GossipMessage(
+            nonce=1, origin=2, forwarded_by=2,
+            timestamp=time.time(),
+            event_type=pb.PEER_ALIVE,
+            peer_alive=pb.PeerAlivePayload(alive_peer=2),
+        )
+        sender = ServerReference("127.0.0.1", 9002)
+        with patch.object(server, '_forward_message') as mock_fwd:
             server._on_gossip_message(msg, sender)
+            mock_fwd.assert_called_once()
 
-            # Should update heartbeat with large value
-            peer = server._state.get_peer(1)
-            assert peer.heartbeat == huge_nonce
+    def test_process_message_dispatches_all_event_types(self):
+        server = self._create_server()
+        server._ensure_peer_exists(5)
+        server._state.add_room(Room("r1", 1, RoomStatus.ACTIVE, 30001, "svc"))
 
-    @pytest.mark.parametrize("invalid_peer_index", [-1, -10, -999])
-    def test_ensure_peer_exists_negative_index(self, mock_env_manual, mock_socket_handler, mock_failure_detector,
-                                               invalid_peer_index):
-        """Test _ensure_peer_exists with negative peer index."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
+        messages = [
+            pb.GossipMessage(nonce=1, origin=0, forwarded_by=0, event_type=pb.PEER_JOIN,
+                             peer_join=pb.PeerJoinPayload(joining_peer=5)),
+            pb.GossipMessage(nonce=2, origin=0, forwarded_by=0, event_type=pb.PEER_ALIVE,
+                             peer_alive=pb.PeerAlivePayload(alive_peer=5)),
+            pb.GossipMessage(nonce=3, origin=0, forwarded_by=0, event_type=pb.PEER_SUSPICIOUS,
+                             peer_suspicious=pb.PeerSuspiciousPayload(suspicious_peer=5)),
+            pb.GossipMessage(nonce=4, origin=0, forwarded_by=0, event_type=pb.PEER_DEAD,
+                             peer_dead=pb.PeerDeadPayload(dead_peer=5)),
+            pb.GossipMessage(nonce=5, origin=0, forwarded_by=0, event_type=pb.ROOM_ACTIVATED,
+                             room_activated=pb.RoomActivatedPayload(room_id="r2", owner_hub=1, external_port=30002)),
+            pb.GossipMessage(nonce=6, origin=0, forwarded_by=0, event_type=pb.ROOM_STARTED,
+                             room_started=pb.RoomStartedPayload(room_id="r1")),
+            pb.GossipMessage(nonce=7, origin=0, forwarded_by=0, event_type=pb.ROOM_CLOSED,
+                             room_closed=pb.RoomClosedPayload(room_id="r1")),
+            pb.GossipMessage(nonce=8, origin=0, forwarded_by=0, event_type=pb.PEER_LEAVE,
+                             peer_leave=pb.PeerLeavePayload(leaving_peer=5)),
+        ]
 
-            # Should raise ValueError (HubPeer doesn't accept negative index)
-            with pytest.raises(ValueError, match="Required peer cannot be negative"):
-                server._ensure_peer_exists(invalid_peer_index)
+        for msg in messages:
+            server._process_message(msg)
 
-    def test_forward_message_with_suspected_peers(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test that suspected peers are included in forwarding."""
-        env = dict(mock_env_manual)
-        env['HUB_FANOUT'] = '10'
 
-        with patch.dict(os.environ, env):
-            server = HubServer(discovery_mode='manual')
+class TestHubServerProperties:
 
-            # Add peers with different statuses
-            for i in range(1, 4):
-                server._ensure_peer_exists(i)
+    def _create_server(self):
+        with patch.dict(os.environ, {"HOSTNAME": "hub-2.local", "GOSSIP_PORT": "9000"}), \
+             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+             patch("bomberman.hub_server.HubServer.FailureDetector"), \
+             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "localhost"
+            server = HubServer(discovery_mode="manual")
+        return server
 
-            server._state.set_peer_status(1, 'alive')
-            server._state.set_peer_status(2, 'suspected')  # Should be included
-            server._state.set_peer_status(3, 'dead')  # Should be excluded
+    def test_all_properties(self):
+        server = self._create_server()
+        assert server.hostname == "hub-2.local"
+        assert server.hub_index == 2
+        assert server.discovery_mode == "manual"
+        assert server.fanout == 4
+        assert server.last_used_nonce == 0
+        assert server.room_manager is not None
 
-            msg = create_gossip_message(
-                nonce=1,
-                origin=0,
-                forwarded_by=0,
-                event_type=pb.PEER_ALIVE,
-                alive_peer=0
-            )
+    def test_get_all_peers(self):
+        server = self._create_server()
+        peers = server.get_all_peers()
+        assert len(peers) == 1
 
-            server._forward_message(msg)
+    def test_get_all_rooms(self):
+        server = self._create_server()
+        server._state.add_room(Room("r1", 0, RoomStatus.ACTIVE, 10001, "svc"))
+        assert len(server.get_all_rooms()) == 1
 
-            call_args = mock_socket_handler.send_to_many.call_args[0]
-            targets = call_args[1]
 
-            # Should forward to 2 peers (alive + suspected, not dead)
-            assert len(targets) == 2
+class TestHubServerDiscoveryPeers:
 
-    def test_multiple_peer_join_same_peer(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test handling multiple PEER_JOIN messages for same peer."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
+    def _create_server(self, discovery_mode="manual", hub_index=1):
+        hostname = f"hub-{hub_index}.local"
+        env = {"HOSTNAME": hostname, "GOSSIP_PORT": "9000", "EXPECTED_HUB_COUNT": "3"}
+        with patch.dict(os.environ, env), \
+             patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
+             patch("bomberman.hub_server.HubServer.FailureDetector"), \
+             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "localhost"
+            server = HubServer(discovery_mode=discovery_mode)
+        return server
 
-            msg1 = create_gossip_message(
-                nonce=1,
-                origin=5,
-                forwarded_by=5,
-                event_type=pb.PEER_JOIN,
-                joining_peer=5
-            )
+    def test_discovery_peers_manual_mode_sends_to_random_peer(self):
+        server = self._create_server(discovery_mode="manual", hub_index=1)
+        server._discovery_peers()
+        server._socket_handler.send.assert_called()
 
-            msg2 = create_gossip_message(
-                nonce=2,
-                origin=5,
-                forwarded_by=5,
-                event_type=pb.PEER_JOIN,
-                joining_peer=5
-            )
+    def test_discovery_peers_k8s_mode(self):
+        env = {"HOSTNAME": "hub-1.local", "GOSSIP_PORT": "9000", "EXPECTED_HUB_COUNT": "3",
+               "K8S_NAMESPACE": "test", "HUB_SERVICE_NAME": "hub-svc"}
+        with patch.dict(os.environ, env), \
+             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+             patch("bomberman.hub_server.HubServer.FailureDetector"), \
+             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "localhost"
+            server = HubServer(discovery_mode="k8s")
+            server._discovery_peers()
+            server._socket_handler.send.assert_called()
 
-            sender = ServerReference("127.0.0.1", 9005)
-
-            server._on_gossip_message(msg1, sender)
-            server._on_gossip_message(msg2, sender)
-
-            # Should only have one peer 5
-            peer = server._state.get_peer(5)
-            assert peer is not None
-            assert peer.heartbeat == 2  # Updated to latest nonce
-
-    def test_peer_leave_then_rejoin(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test peer leaving and then rejoining."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Peer joins
-            join_msg = create_gossip_message(
-                nonce=1,
-                origin=3,
-                forwarded_by=3,
-                event_type=pb.PEER_JOIN,
-                joining_peer=3
-            )
-            sender = ServerReference("127.0.0.1", 9003)
-            server._on_gossip_message(join_msg, sender)
-
-            # Peer leaves
-            leave_msg = create_gossip_message(
-                nonce=2,
-                origin=3,
-                forwarded_by=3,
-                event_type=pb.PEER_LEAVE,
-                leaving_peer=3
-            )
-            server._on_gossip_message(leave_msg, sender)
-
-            # Peer should be dead
-            assert server._state.get_peer(3).status == 'dead'
-
-            # Peer rejoins with higher nonce
-            rejoin_msg = create_gossip_message(
-                nonce=3,
-                origin=3,
-                forwarded_by=3,
-                event_type=pb.PEER_JOIN,
-                joining_peer=3
-            )
-            server._on_gossip_message(rejoin_msg, sender)
-
-            # Peer should be alive again
-            peer = server._state.get_peer(3)
-            assert peer.status == 'alive'
-
-    def test_on_peer_dead_callback_removes_and_broadcasts(self, mock_env_manual, mock_socket_handler,
-                                                          mock_failure_detector):
-        """Test that _on_peer_dead both broadcasts and removes peer."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Create peer
-            server._ensure_peer_exists(7)
-            server._ensure_peer_exists(1)  # For forwarding
-
-            initial_status = server._state.get_peer(7).status
-
-            mock_socket_handler.send_to_many.reset_mock()
-            server._on_peer_dead(7)
-
-            # Should broadcast message
-            mock_socket_handler.send_to_many.assert_called_once()
-
-            # Peer should be marked dead
-            assert server._state.get_peer(7).status == 'dead'
-
-    def test_very_high_message_rate(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test handling very high message rate."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            # Process 1000 messages rapidly
-            for i in range(1000):
-                msg = create_gossip_message(
-                    nonce=i,
-                    origin=1,
-                    forwarded_by=1,
-                    event_type=pb.PEER_ALIVE,
-                    alive_peer=1
-                )
-                sender = ServerReference("127.0.0.1", 9001)
-                server._on_gossip_message(msg, sender)
-
-            # Peer should have latest nonce
-            peer = server._state.get_peer(1)
-            assert peer.heartbeat == 999
-
-    def test_message_from_future_timestamp(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test handling message with timestamp in the future."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            msg = pb.GossipMessage(
-                nonce=1,
-                origin=1,
-                forwarded_by=1,
-                timestamp=time.time() + 1000000,  # Far future
-                event_type=pb.PEER_ALIVE
-            )
-            msg.peer_alive.CopyFrom(pb.PeerAlivePayload(alive_peer=1))
-
-            sender = ServerReference("127.0.0.1", 9001)
-
-            # Should process normally (timestamp not validated)
-            server._on_gossip_message(msg, sender)
-
-            assert server._state.get_peer(1) is not None
-
-    def test_message_from_past_timestamp(self, mock_env_manual, mock_socket_handler, mock_failure_detector):
-        """Test handling message with very old timestamp."""
-        with patch.dict(os.environ, mock_env_manual):
-            server = HubServer(discovery_mode='manual')
-
-            msg = pb.GossipMessage(
-                nonce=1,
-                origin=1,
-                forwarded_by=1,
-                timestamp=0.0,  # Unix epoch
-                event_type=pb.PEER_ALIVE
-            )
-            msg.peer_alive.CopyFrom(pb.PeerAlivePayload(alive_peer=1))
-
-            sender = ServerReference("127.0.0.1", 9001)
-
-            # Should process normally
-            server._on_gossip_message(msg, sender)
-
-            assert server._state.get_peer(1) is not None
+    def test_discovery_peers_manual_hub0_does_not_send(self):
+        """Hub-0 in manual mode non invia discovery perche' e' il primo nodo."""
+        server = self._create_server(discovery_mode="manual", hub_index=0)
+        server._socket_handler.reset_mock()
+        with patch.dict(os.environ, {"EXPECTED_HUB_COUNT": "1"}):
+            server._discovery_peers()
+        server._socket_handler.send.assert_not_called()

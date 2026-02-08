@@ -16,6 +16,7 @@ enum EventType {
     ROOM_ACTIVATED = 10; //When a room started accepting players
     ROOM_STARTED = 11; //When a room started a game
     ROOM_CLOSED = 12;
+    ROOM_PLAYER_JOINED = 13;
 }
 
 message GossipMessage {
@@ -34,6 +35,7 @@ message GossipMessage {
         RoomActivatedPayload room_activated = 15;
         RoomStartedPayload room_started = 16;
         RoomClosedPayload room_closed = 17;
+        RoomPlayerJoined room_player_joined = 18;
     }
 
     // Payload specifico (oneof = un solo campo alla volta)
@@ -80,5 +82,9 @@ message RoomActivatedPayload {
 }
 
 message RoomClosedPayload {
+    string room_id = 1;
+}
+
+message RoomPlayerJoined {
     string room_id = 1;
 }
