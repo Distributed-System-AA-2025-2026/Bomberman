@@ -79,49 +79,10 @@ class RoomManager:
         return None
 
     def _create_room_pod(self, room_id: str):
-        """Crea il pod della room"""
-        pod = client.V1Pod(
-            metadata=client.V1ObjectMeta(
-                name=f"room-{room_id}",
-                namespace="bomberman",
-                labels={
-                    "app": "room",
-                    "room-id": room_id,
-                    "owner-hub": str(self._hub_index)
-                }
-            ),
-            spec=client.V1PodSpec(
-                containers=[
-                    client.V1Container(
-                        name="room",
-                        image="httpd:2.4",  # TODO: sostituire con room image
-                        ports=[client.V1ContainerPort(container_port=80)],
-                        env=[
-                            client.V1EnvVar(name="ROOM_ID", value=room_id),
-                            client.V1EnvVar(name="OWNER_HUB", value=str(self._hub_index)),
-                        ]
-                    )
-                ]
-            )
-        )
-
-        self._k8s_core.create_namespaced_pod(namespace="bomberman", body=pod)
+        pass
 
     def _create_room_service(self, room_id: str):
-        """Crea il service ClusterIP per la room"""
-        service = client.V1Service(
-            metadata=client.V1ObjectMeta(
-                name=f"room-{room_id}-svc",
-                namespace="bomberman"
-            ),
-            spec=client.V1ServiceSpec(
-                type="ClusterIP",
-                selector={"room-id": room_id},
-                ports=[client.V1ServicePort(port=80, target_port=80)]
-            )
-        )
-
-        self._k8s_core.create_namespaced_service(namespace="bomberman", body=service)
+        pass
 
     def _update_nginx_config(self):
         """Aggiorna ConfigMap Nginx con tutte le room"""
