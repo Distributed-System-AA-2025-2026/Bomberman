@@ -5,6 +5,7 @@ import inspect
 from bomberman.common.ServerReference import ServerReference
 from bomberman.hub_server.gossip import messages_pb2 as pb
 from bomberman.hub_server.hublogging import print_console
+from concurrent.futures import ThreadPoolExecutor
 
 BUFFER_SIZE = 65535  # max UDP datagram size
 
@@ -20,6 +21,7 @@ class HubSocketHandler:
     _running: bool
     _listener_thread: threading.Thread
     _logging: LoggingFunction
+    _max_workers = 8
 
     def __init__(self, port: int, on_message: MessageHandler, logging: LoggingFunction = print_console):
         self._on_message = on_message
@@ -27,6 +29,7 @@ class HubSocketHandler:
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._socket.bind(("0.0.0.0", port))
         self._logging = logging
+        self._pool = ThreadPoolExecutor(max_workers=self._max_workers)
         self._execute_check()
 
     def _execute_check(self):
@@ -53,17 +56,13 @@ class HubSocketHandler:
     def stop(self):
         self._running = False
         self._socket.close()
+        self._pool.shutdown(wait=False)
 
     def _listen_loop(self):
         while self._running:
             try:
                 data, addr = self._socket.recvfrom(BUFFER_SIZE)
-                handler_thread = threading.Thread(
-                    target=self._handle_message,
-                    args=(data, addr),
-                    daemon=True
-                )
-                handler_thread.start()
+                self._pool.submit(self._handle_message, data, addr)
             except OSError:
                 break
 
