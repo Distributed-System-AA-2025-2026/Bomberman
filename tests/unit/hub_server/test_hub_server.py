@@ -80,11 +80,11 @@ class TestHubServerMessageProcessing:
 
     def _create_server(self):
         with patch.dict(os.environ, {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000"}), \
-             patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
-             patch("bomberman.hub_server.HubServer.FailureDetector"), \
-             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
-             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
-             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+                patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
             mock_rm.return_value = MagicMock()
             mock_rm.return_value.external_domain = "localhost"
             server = HubServer(discovery_mode="manual")
@@ -171,16 +171,44 @@ class TestHubServerMessageProcessing:
         server._handle_room_closed(payload)
         assert server._state.get_room("room-1").status == RoomStatus.DORMANT
 
+    def test_handle_room_player_joined_increments_count(self):
+        """ROOM_PLAYER_JOINED must increment player_count on the matching room"""
+        server = self._create_server()
+        room = Room("room-1", 1, RoomStatus.ACTIVE, 30001, "svc")
+        server._state.add_room(room)
+        payload = pb.RoomPlayerJoined(room_id="room-1")
+        server._handle_room_player_joined(payload)
+        assert room.player_count == 1
+
+    def test_handle_room_player_joined_unknown_room_is_noop(self):
+        """If the room doesn't exist locally, the message is silently ignored."""
+        server = self._create_server()
+        payload = pb.RoomPlayerJoined(room_id="nonexistent")
+        server._handle_room_player_joined(payload)  # no crash
+
+    def test_process_message_dispatches_room_player_joined(self):
+        """Verify the match/case routes ROOM_PLAYER_JOINED correctly."""
+        server = self._create_server()
+        room = Room("r1", 1, RoomStatus.ACTIVE, 30001, "svc")
+        server._state.add_room(room)
+        msg = pb.GossipMessage(
+            nonce=1, origin=0, forwarded_by=0,
+            event_type=pb.ROOM_PLAYER_JOINED,
+            room_player_joined=pb.RoomPlayerJoined(room_id="r1"),
+        )
+        server._process_message(msg)
+        assert room.player_count == 1
+
 
 class TestHubServerNonce:
 
     def _create_server(self):
         with patch.dict(os.environ, {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000"}), \
-             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
-             patch("bomberman.hub_server.HubServer.FailureDetector"), \
-             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
-             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
-             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+                patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
             mock_rm.return_value = MagicMock()
             mock_rm.return_value.external_domain = "localhost"
             server = HubServer(discovery_mode="manual")
@@ -202,11 +230,11 @@ class TestHubServerSendValidation:
 
     def _create_server(self):
         with patch.dict(os.environ, {"HOSTNAME": "hub-1.local", "GOSSIP_PORT": "9000"}), \
-             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
-             patch("bomberman.hub_server.HubServer.FailureDetector"), \
-             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
-             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
-             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+                patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
             mock_rm.return_value = MagicMock()
             mock_rm.return_value.external_domain = "localhost"
             server = HubServer(discovery_mode="manual")
@@ -229,11 +257,11 @@ class TestHubServerRoomUnhealthy:
 
     def _create_server(self):
         with patch.dict(os.environ, {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000"}), \
-             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
-             patch("bomberman.hub_server.HubServer.FailureDetector"), \
-             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
-             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
-             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+                patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
             mock_rm.return_value = MagicMock()
             mock_rm.return_value.external_domain = "localhost"
             server = HubServer(discovery_mode="manual")
@@ -259,11 +287,11 @@ class TestHubServerGetOrActivateRoom:
 
     def _create_server(self):
         with patch.dict(os.environ, {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000"}), \
-             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
-             patch("bomberman.hub_server.HubServer.FailureDetector"), \
-             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
-             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
-             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+                patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
             mock_rm.return_value = MagicMock()
             mock_rm.return_value.external_domain = "localhost"
             server = HubServer(discovery_mode="manual")
@@ -296,11 +324,11 @@ class TestHubServerBroadcasts:
     def _create_server(self, hub_index=0):
         hostname = f"hub-{hub_index}.local"
         with patch.dict(os.environ, {"HOSTNAME": hostname, "GOSSIP_PORT": "9000"}), \
-             patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
-             patch("bomberman.hub_server.HubServer.FailureDetector"), \
-             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
-             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
-             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+                patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
             mock_rm.return_value = MagicMock()
             mock_rm.return_value.external_domain = "test.example.com"
             server = HubServer(discovery_mode="manual")
@@ -357,11 +385,11 @@ class TestHubServerForwardAndDiscovery:
             env["K8S_NAMESPACE"] = "test-ns"
             env["HUB_SERVICE_NAME"] = "hub-svc"
         with patch.dict(os.environ, env), \
-             patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
-             patch("bomberman.hub_server.HubServer.FailureDetector"), \
-             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
-             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
-             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+                patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
             mock_rm.return_value = MagicMock()
             mock_rm.return_value.external_domain = "localhost"
             server = HubServer(discovery_mode=discovery_mode)
@@ -424,11 +452,11 @@ class TestHubServerOnGossipMessage:
     def _create_server(self, hub_index=0):
         hostname = f"hub-{hub_index}.local"
         with patch.dict(os.environ, {"HOSTNAME": hostname, "GOSSIP_PORT": "9000"}), \
-             patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
-             patch("bomberman.hub_server.HubServer.FailureDetector"), \
-             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
-             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
-             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+                patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
             mock_rm.return_value = MagicMock()
             mock_rm.return_value.external_domain = "localhost"
             server = HubServer(discovery_mode="manual")
@@ -501,16 +529,53 @@ class TestHubServerOnGossipMessage:
         for msg in messages:
             server._process_message(msg)
 
+    def test_on_gossip_message_with_different_forwarder_tracks_both_peers(self):
+        server = self._create_server()
+        msg = pb.GossipMessage(
+            nonce=1, origin=3, forwarded_by=5,
+            timestamp=time.time(),
+            event_type=pb.PEER_ALIVE,
+            peer_alive=pb.PeerAlivePayload(alive_peer=3),
+        )
+        sender = ServerReference("127.0.0.1", 9005)
+        server._on_gossip_message(msg, sender)
+        assert server._state.get_peer(3) is not None, "origin peer must be tracked"
+        assert server._state.get_peer(5) is not None, "forwarder peer must be tracked"
+
+    def test_on_gossip_message_k8s_resolves_sender_via_naming(self):
+        env = {"HOSTNAME": "hub-0.local", "GOSSIP_PORT": "9000",
+               "K8S_NAMESPACE": "test-ns", "HUB_SERVICE_NAME": "hub-svc"}
+        with patch.dict(os.environ, env), \
+                patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+            mock_rm.return_value = MagicMock()
+            mock_rm.return_value.external_domain = "localhost"
+            server = HubServer(discovery_mode="k8s")
+
+            msg = pb.GossipMessage(
+                nonce=1, origin=2, forwarded_by=2,
+                timestamp=time.time(),
+                event_type=pb.PEER_ALIVE,
+                peer_alive=pb.PeerAlivePayload(alive_peer=2),
+            )
+            raw_sender = ServerReference("10.244.0.5", 9000)
+            server._on_gossip_message(msg, raw_sender)
+            peer = server._state.get_peer(2)
+            assert "hub-2" in peer.reference.address, "k8s must resolve via DNS naming"
+
 
 class TestHubServerProperties:
 
     def _create_server(self):
         with patch.dict(os.environ, {"HOSTNAME": "hub-2.local", "GOSSIP_PORT": "9000"}), \
-             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
-             patch("bomberman.hub_server.HubServer.FailureDetector"), \
-             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
-             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
-             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+                patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
             mock_rm.return_value = MagicMock()
             mock_rm.return_value.external_domain = "localhost"
             server = HubServer(discovery_mode="manual")
@@ -542,11 +607,11 @@ class TestHubServerDiscoveryPeers:
         hostname = f"hub-{hub_index}.local"
         env = {"HOSTNAME": hostname, "GOSSIP_PORT": "9000", "EXPECTED_HUB_COUNT": "3"}
         with patch.dict(os.environ, env), \
-             patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
-             patch("bomberman.hub_server.HubServer.FailureDetector"), \
-             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
-             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
-             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+                patch("bomberman.hub_server.HubServer.HubSocketHandler") as mock_sh, \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
             mock_rm.return_value = MagicMock()
             mock_rm.return_value.external_domain = "localhost"
             server = HubServer(discovery_mode=discovery_mode)
@@ -561,11 +626,11 @@ class TestHubServerDiscoveryPeers:
         env = {"HOSTNAME": "hub-1.local", "GOSSIP_PORT": "9000", "EXPECTED_HUB_COUNT": "3",
                "K8S_NAMESPACE": "test", "HUB_SERVICE_NAME": "hub-svc"}
         with patch.dict(os.environ, env), \
-             patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
-             patch("bomberman.hub_server.HubServer.FailureDetector"), \
-             patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
-             patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
-             patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
+                patch("bomberman.hub_server.HubServer.HubSocketHandler"), \
+                patch("bomberman.hub_server.HubServer.FailureDetector"), \
+                patch("bomberman.hub_server.HubServer.PeerDiscoveryMonitor"), \
+                patch("bomberman.hub_server.HubServer.RoomHealthMonitor"), \
+                patch("bomberman.hub_server.HubServer.create_room_manager") as mock_rm:
             mock_rm.return_value = MagicMock()
             mock_rm.return_value.external_domain = "localhost"
             server = HubServer(discovery_mode="k8s")
