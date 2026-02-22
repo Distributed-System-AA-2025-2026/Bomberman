@@ -26,7 +26,7 @@ class LocalRoomManager(RoomManagerBase):
             room_id = f"hub{self._hub_index}-{i}"
             port = self.ROOM_PORT_START + (self._hub_index * 100) + i
 
-            if self._create_room(room_id, port):
+            if self._create_room(room_id):
                 room = Room(
                     room_id=room_id,
                     owner_hub_index=self._hub_index,
@@ -37,7 +37,7 @@ class LocalRoomManager(RoomManagerBase):
                 self._local_rooms[room_id] = room
                 print_console(f"Created simulated room {room_id} on port {port}", "RoomHandling")
 
-    def _create_room(self, room_id: str, port: int) -> bool:
+    def _create_room(self, room_id: str) -> bool:
         print_console(f"[LOCAL] Simulating room creation: {room_id}", "RoomHandling")
         return True
 
