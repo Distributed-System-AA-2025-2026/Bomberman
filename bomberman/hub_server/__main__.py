@@ -8,12 +8,8 @@ from bomberman.common.hub_rest_api.responses.DefaultResponse import DefaultRespo
 from bomberman.hub_server.HubServer import HubServer
 import os
 
-
-
-if __name__ == '__main__':
-
+def create_application() -> FastAPI:
     discovery_mode = os.environ.get("HUB_DISCOVERY_MODE", "manual")
-
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -27,19 +23,15 @@ if __name__ == '__main__':
         hub_server.stop()
         del hub_server
 
-
     app = FastAPI(lifespan=lifespan)
-
 
     @app.get("/")
     def get_root(request: Request):
         return {"content": "Go away."}
 
-
     @app.get("/health")
     def health_check():
         return {"status": "healthy"}
-
 
     @app.get("/ready")
     def readiness_check(request: Request):
@@ -48,7 +40,6 @@ if __name__ == '__main__':
         if hub_server is None:
             return Response(status_code=503, content="Not ready")
         return {"status": "ready"}
-
 
     @app.post("/matchmaking", response_model=MatchmakingResponse)
     def matchmaking(request: Request) -> MatchmakingResponse:
@@ -67,8 +58,6 @@ if __name__ == '__main__':
             room_id=room.room_id
         )
 
-
-
     @app.post("/room/{room_id}/start")
     def room_started(room_id: str, request: Request):
         hub_server = request.app.state.hub_server
@@ -78,7 +67,6 @@ if __name__ == '__main__':
             response_message="Ok."
         )
 
-
     @app.post("/room/{room_id}/close")
     def room_closed(room_id: str, request: Request):
         hub_server = request.app.state.hub_server
@@ -87,7 +75,6 @@ if __name__ == '__main__':
             response_code=200,
             response_message="Ok."
         )
-
 
     @app.get("/debug/")
     def debug_request(request: Request):
@@ -132,7 +119,10 @@ if __name__ == '__main__':
             "rooms": rooms_info
         }
 
+    return app
 
+if __name__ == '__main__':
+    app = create_application()
     port = int(os.environ.get("HTTP_PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
 
