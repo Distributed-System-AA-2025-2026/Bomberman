@@ -68,10 +68,13 @@ class HubSocketHandler:
                 break
 
     def _handle_message(self, data: bytes, addr: tuple[str, int]):
-        """Parsing and callback """
         try:
+            if not data:
+                raise ValueError("Empty datagram received")
             message = pb.GossipMessage()
             message.ParseFromString(data)
+            if message.nonce == 0: #I peer iniziano da 1. Un peer che inizia da 0 non ha senso.
+                raise ValueError(f"Message with nonce=0 is invalid (origin={message.origin})")
             sender = ServerReference(addr[0], addr[1])
             self._on_message(message, sender)
         except Exception as e:
