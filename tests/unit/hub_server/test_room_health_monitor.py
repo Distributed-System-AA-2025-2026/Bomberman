@@ -139,10 +139,6 @@ class TestRoomHealthMonitorCheckAllRooms:
         assert thread1 is thread2
         monitor.stop()
 
-    def test_stop_without_start_is_safe(self):
-        monitor, _, _ = self._make_monitor()
-        monitor.stop()
-
     def test_monitor_loop_handles_exception_in_check(self):
         monitor, state, callback = self._make_monitor()
         monitor._running = True

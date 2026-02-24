@@ -17,7 +17,7 @@ end note
 
 == Phase 1: Matchmaking (REST - AP) ==
 
-Client -> HubA: POST /matchmaking\n(request_id)
+Client -> HubA: POST /matchmaking
 activate HubA
 
 HubA -> HubA: Check local\nroom directory
@@ -31,9 +31,7 @@ else No available room - query peers (optional)
 
     note over HubA #LightBlue
         Create new room:
-        - Generate room_id + token
-        - Register room as STARTING
-        - Set lease_TTL
+        - Generate room_id
     end note
 
     par Gossip propagation
@@ -67,7 +65,7 @@ alt Token valid
     end
 
 else Token invalid/expired
-    Room --> Client: Reject connection
+    Room --> Client: Reject connection (Error)
     deactivate Room
 end
 
@@ -84,25 +82,7 @@ loop Every tick (50-100ms)
 
     Room -> Room: Process inputs\ndeterministically
 
-    Room --> Client: State delta/snapshot\n(positions, bombs, explosions)
-end
-
-== Phase 4: Disconnect (Best Effort) ==
-
-alt Client timeout
-    note over Room #FFE0E0
-        No input for T_disconnect
-    end note
-
-    Room -> Room: Mark player disconnected\nRemove from game loop
-    Room --> Client: Disconnect notification\n(if reachable)
-    deactivate Room
-end
-
-opt Gossip update
-    Room -> HubA: Room status update\n(player left)
-    HubA ->> HubB: Gossip: room status changed
-    HubA ->> HubC: Gossip: room status changed
+    Room --> Client: State (positions, bombs, explosions)
 end
 
 == Background: Continuous Hub Gossip ==
