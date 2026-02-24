@@ -63,7 +63,7 @@ class TestHubPeer:
         after = time.time()
         assert before <= peer.last_seen <= after
 
-    def test_status_setter_does_not_guard_against_non_string_types(self):
+    def test_non_string_status_raises_value_error(self):
         peer = HubPeer(self._make_ref(), 0)
         with pytest.raises(ValueError):
             peer.status = 123

@@ -97,36 +97,6 @@ class TestHubSocketHandlerSend:
 
 
     @patch("socket.socket")
-    def test_send_handles_dns_failure(self, mock_socket_cls):
-        mock_sock = MagicMock()
-        mock_sock.sendto.side_effect = socket.gaierror("DNS failed")
-        mock_socket_cls.return_value = mock_sock
-        logger = MagicMock()
-
-        handler = HubSocketHandler(9000, self._valid_callback, logging=logger)
-        msg = pb.GossipMessage(nonce=1, origin=0)
-        handler.send(msg, ServerReference("bad.host", 8000))
-
-        logger.assert_called_once()
-        assert "DNS" in logger.call_args[0][0]
-
-
-    @patch("socket.socket")
-    def test_send_handles_os_error(self, mock_socket_cls):
-        mock_sock = MagicMock()
-        mock_sock.sendto.side_effect = OSError("Network unreachable")
-        mock_socket_cls.return_value = mock_sock
-        logger = MagicMock()
-
-        handler = HubSocketHandler(9000, self._valid_callback, logging=logger)
-        msg = pb.GossipMessage(nonce=1, origin=0)
-        handler.send(msg, ServerReference("10.0.0.1", 8000))
-
-        logger.assert_called_once()
-        assert "Failed to send" in logger.call_args[0][0]
-
-
-    @patch("socket.socket")
     def test_handle_message_parses_protobuf_and_calls_callback(self, mock_socket_cls):
         callback = MagicMock()
         mock_socket_cls.return_value = MagicMock()

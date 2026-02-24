@@ -35,13 +35,13 @@ class TestServerReference:
     def test_get_full_reference_edge_cases(self, address, port, expected):
         assert ServerReference(address, port).get_full_reference() == expected
 
-    def test_eq_crashes_on_non_server_reference(self):
+    def test_eq_with_different_type_returns_false(self):
         ref = ServerReference("10.0.0.1", 5000)
         result = (ref == "not_a_server_reference")
         assert result is False
 
 
-    def test_eq_crashes_on_none(self):
+    def test_eq_with_none_returns_false(self):
         ref = ServerReference("10.0.0.1", 5000)
         result = (ref == None)
         assert result is False
