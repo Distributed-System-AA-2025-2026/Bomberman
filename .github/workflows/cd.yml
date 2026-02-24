@@ -135,3 +135,32 @@ jobs:
           microk8s kubectl get pods -n bomberman -o wide
           echo "=== Services ==="
           microk8s kubectl get svc -n bomberman
+
+  e2e:
+    needs: deploy
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Wait for system to stabilize
+        run: sleep 300
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --no-interaction
+
+      - name: Run E2E tests
+        run: |
+          poetry run pytest tests/e2e/e2e_enrico_wins.py -v -m slow \
+            --matchmaking-url=https://bomberman.romanellas.cloud/matchmaking \
+            --deploy-timeout=60 \
+            --no-cov

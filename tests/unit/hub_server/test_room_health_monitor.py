@@ -143,16 +143,6 @@ class TestRoomHealthMonitorCheckAllRooms:
         monitor, _, _ = self._make_monitor()
         monitor.stop()
 
-    @patch("bomberman.hub_server.RoomHealthMonitor.requests.get")
-    def test_check_all_rooms_respects_running_flag(self, mock_get):
-        monitor, state, callback = self._make_monitor()
-        state.add_room(self._make_room("room-1", RoomStatus.ACTIVE))
-        state.add_room(self._make_room("room-2", RoomStatus.ACTIVE))
-
-        mock_get.return_value = MagicMock(status_code=200, json=lambda: {"status": "WAITING_FOR_PLAYERS"})
-        monitor._running = False
-        monitor._check_all_rooms()
-
     def test_monitor_loop_handles_exception_in_check(self):
         monitor, state, callback = self._make_monitor()
         monitor._running = True

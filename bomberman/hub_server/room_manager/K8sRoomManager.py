@@ -2,6 +2,7 @@ import os
 from time import sleep
 from typing import Callable
 from kubernetes import client, config
+from kubernetes.client import ApiException
 
 from bomberman.hub_server.Room import Room
 from bomberman.common.RoomState import RoomStatus
@@ -86,7 +87,7 @@ class K8sRoomManager(RoomManagerBase):
                 if phase == "Running":
                     status = RoomStatus.ACTIVE
                 elif phase == "Pending":
-                    status = RoomStatus.ACTIVE
+                    status = RoomStatus.DORMANT
                 else:
                     continue
 
@@ -113,13 +114,20 @@ class K8sRoomManager(RoomManagerBase):
         return self._last_used_room_index
 
     def _create_room(self, room_id: str) -> int | None:
+        pod_name = f"room-{room_id}"
         try:
             self._create_room_pod(room_id)
-            node_port = self._create_room_service(room_id)
-            return node_port
         except Exception as e:
             print_console(f"Failed to create room {room_id}: {e}", "Error")
+            self._delete_room_pod(pod_name)
             return None
+        try:
+            node_port = self._create_room_service(room_id)
+        except Exception as e:
+            self._delete_room_pod(pod_name)
+            return None
+        return node_port
+
 
     def _create_room_pod(self, room_id: str) -> None:
         # Construct the Hub API URL for the room to connect back
@@ -201,10 +209,7 @@ class K8sRoomManager(RoomManagerBase):
 
         return created.spec.ports[0].node_port
 
-    def _delete_room(self, room_id: str) -> None:
-        pod_name = f"room-{room_id}"
-        svc_name = f"room-{room_id}-svc"
-
+    def _delete_room_pod(self, pod_name: str) -> bool:
         try:
             self._k8s_core.delete_namespaced_pod(
                 name=pod_name,
@@ -213,6 +218,17 @@ class K8sRoomManager(RoomManagerBase):
         except client.exceptions.ApiException as e:
             if e.status != 404:
                 print_console(f"Failed to delete pod {pod_name}: {e}", "Error")
+            return False
+        return True
+
+    def _delete_room(self, room_id: str) -> None:
+        pod_name = f"room-{room_id}"
+        svc_name = f"room-{room_id}-svc"
+
+        delete_result = self._delete_room_pod(pod_name)
+        if not delete_result:
+            print_console(f"Failed to delete pod {pod_name}", "Error")
+            return
 
         try:
             self._k8s_core.delete_namespaced_service(
@@ -226,7 +242,7 @@ class K8sRoomManager(RoomManagerBase):
         # Aspetta che il pod sia effettivamente eliminato
         self._wait_for_pod_deletion(pod_name)
 
-    def _wait_for_pod_deletion(self, pod_name: str, timeout: int = 30) -> None:
+    def _wait_for_pod_deletion(self, pod_name: str, timeout: int = 30) -> bool:
         """Aspetta che un pod sia completamente eliminato."""
         from time import sleep, time
 
@@ -241,11 +257,11 @@ class K8sRoomManager(RoomManagerBase):
                 sleep(1)
             except client.exceptions.ApiException as e:
                 if e.status == 404:
-                    # Pod eliminato
-                    return
-                raise
+                    return True
+                raise ApiException
 
         print_console(f"Timeout waiting for pod {pod_name} deletion", "Warning")
+        return False
 
     def get_room_address(self, room: Room) -> str:
         return self._external_address

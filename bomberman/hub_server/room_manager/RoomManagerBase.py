@@ -29,7 +29,7 @@ class RoomManagerBase(ABC):
         pass
 
     @abstractmethod
-    def _create_room(self, room_id: str, port: int) -> bool:
+    def _create_room(self, room_id: str) -> bool:
         """Crea la room (pod K8s o processo locale)"""
         pass
 
