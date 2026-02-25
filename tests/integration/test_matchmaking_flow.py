@@ -15,7 +15,7 @@ def make_server(gossip_port: int):
 
     from bomberman.hub_server.HubServer import HubServer
     server = HubServer("manual")
-    time.sleep(0.1)
+    time.sleep(0.5)
     return server
 
 
