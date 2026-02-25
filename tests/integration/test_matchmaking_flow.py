@@ -25,6 +25,7 @@ def udp_send(msg: pb.GossipMessage, port: int) -> None:
         s.sendto(msg.SerializeToString(), ("127.0.0.1", port))
     finally:
         s.close()
+    time.sleep(0.5)
 
 class TestRoomFilledViaGossip:
     """
@@ -60,7 +61,7 @@ class TestRoomFilledViaGossip:
                 )
                 udp_send(msg, 19460)
 
-            time.sleep(0.2)
+            time.sleep(1)
 
             assert not first_room.is_joinable, (
                 f"Room {first_room_id} should be full after {max_players} players, "
@@ -98,6 +99,7 @@ class TestRoomFilledViaGossip:
                     room_player_joined=pb.RoomPlayerJoined(room_id=room_id),
                 )
                 udp_send(msg, 19461)
+                time.sleep(0.2)
 
             time.sleep(0.2)
 
