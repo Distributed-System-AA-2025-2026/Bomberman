@@ -7,21 +7,6 @@ from bomberman.hub_server.gossip import messages_pb2 as pb
 from bomberman.common.RoomState import RoomStatus
 
 
-def _wait_until_listening(port: int, timeout: float = 5.0) -> None:
-    """Block until the server's UDP socket is bound and ready to receive."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            probe.bind(("0.0.0.0", port))
-            probe.close()
-        except OSError:
-            # Address already in use => server is ready
-            return
-        time.sleep(0.05)
-    raise TimeoutError(f"Server did not bind to UDP port {port} within {timeout}s")
-
-
 def make_server(gossip_port: int):
     os.environ["GOSSIP_PORT"] = str(gossip_port)
     os.environ["HOSTNAME"] = "hub-0.local"
@@ -30,7 +15,7 @@ def make_server(gossip_port: int):
 
     from bomberman.hub_server.HubServer import HubServer
     server = HubServer("manual")
-    _wait_until_listening(gossip_port)
+    time.sleep(0.1)
     return server
 
 
@@ -40,6 +25,24 @@ def udp_send(msg: pb.GossipMessage, port: int) -> None:
         s.sendto(msg.SerializeToString(), ("127.0.0.1", port))
     finally:
         s.close()
+
+
+def wait_for(condition, timeout: float = 2.0, interval: float = 0.05):
+    """
+    Poll until condition() returns truthy or timeout expires.
+
+    Replaces fixed time.sleep() before assertions: the listener loop spawns
+    a handler thread per message, and on slow schedulers (Windows) that thread
+    may not complete within a fixed sleep. Polling makes the test wait exactly
+    as long as needed.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if condition():
+            return True
+        time.sleep(interval)
+    return False
+
 
 class TestRoomFilledViaGossip:
     """
@@ -56,7 +59,6 @@ class TestRoomFilledViaGossip:
         """
         server = make_server(19460)
         try:
-            # Activate the first room so it's in HubState
             first_room = server.get_or_activate_room()
             assert first_room is not None
             first_room_id = first_room.room_id
@@ -65,7 +67,6 @@ class TestRoomFilledViaGossip:
             max_players = first_room.max_players
 
             # Send ROOM_PLAYER_JOINED to fill the room via gossip
-            # Each message must have a unique nonce (deduplication)
             for i in range(players_already_counted, max_players):
                 msg = pb.GossipMessage(
                     nonce=100 + i, origin=1, forwarded_by=1,
@@ -75,14 +76,11 @@ class TestRoomFilledViaGossip:
                 )
                 udp_send(msg, 19460)
 
-            time.sleep(0.2)
-
-            assert not first_room.is_joinable, (
+            assert wait_for(lambda: not first_room.is_joinable), (
                 f"Room {first_room_id} should be full after {max_players} players, "
                 f"got player_count={first_room.player_count}"
             )
 
-            # Next matchmaking call must activate a new room
             next_room = server.get_or_activate_room()
             assert next_room is not None, "A new room must be activated when current is full"
             assert next_room.room_id != first_room_id, (
@@ -104,7 +102,6 @@ class TestRoomFilledViaGossip:
             room_id = first_room.room_id
             count_after_matchmaking = first_room.player_count  # already 1
 
-            # Send 2 more distinct ROOM_PLAYER_JOINED
             for i in range(2):
                 msg = pb.GossipMessage(
                     nonce=200 + i, origin=1, forwarded_by=1,
@@ -114,10 +111,8 @@ class TestRoomFilledViaGossip:
                 )
                 udp_send(msg, 19461)
 
-            time.sleep(0.2)
-
             expected = count_after_matchmaking + 2
-            assert first_room.player_count == expected, (
+            assert wait_for(lambda: first_room.player_count == expected), (
                 f"Expected player_count={expected}, got {first_room.player_count}. "
                 "Each ROOM_PLAYER_JOINED gossip must increment the counter exactly once."
             )
@@ -146,11 +141,17 @@ class TestRoomFilledViaGossip:
                 )
                 udp_send(msg, 19462)
 
-            time.sleep(0.2)
-
-            assert first_room.player_count == count_after_matchmaking + 1, (
+            expected = count_after_matchmaking + 1
+            assert wait_for(lambda: first_room.player_count == expected), (
                 f"Duplicate ROOM_PLAYER_JOINED (same nonce, two forwarders) counted twice. "
-                f"Expected {count_after_matchmaking + 1}, got {first_room.player_count}."
+                f"Expected {expected}, got {first_room.player_count}."
+            )
+
+            # Extra wait to catch a second increment that would indicate a bug
+            time.sleep(0.2)
+            assert first_room.player_count == expected, (
+                f"Player count changed after stabilization — duplicate was processed late. "
+                f"Expected {expected}, got {first_room.player_count}."
             )
         finally:
             server.stop()
@@ -169,7 +170,6 @@ class TestRemoteRoomAvailableForMatchmaking:
         """
         server = make_server(19470)
         try:
-            # Confirm no joinable room exists yet
             assert server._state.get_active_room() is None
 
             msg = pb.GossipMessage(
@@ -184,13 +184,14 @@ class TestRemoteRoomAvailableForMatchmaking:
                 ),
             )
             udp_send(msg, 19470)
-            time.sleep(0.15)
 
-            room = server._state.get_active_room()
-            assert room is not None, (
+            assert wait_for(lambda: server._state.get_room("hub1-0") is not None), (
                 "Remote ROOM_ACTIVATED received via gossip must add the room to HubState "
                 "and make it available for matchmaking."
             )
+
+            room = server._state.get_active_room()
+            assert room is not None
             assert room.room_id == "hub1-0"
             assert room.owner_hub_index == 1
             assert room.status == RoomStatus.ACTIVE
@@ -216,7 +217,9 @@ class TestRemoteRoomAvailableForMatchmaking:
                 ),
             )
             udp_send(msg, 19471)
-            time.sleep(0.15)
+
+            assert wait_for(lambda: server._state.get_room("hub1-0") is not None), \
+                "Remote room must appear in state before matchmaking call"
 
             result = server.get_or_activate_room()
             assert result is not None, "get_or_activate_room() must return the remote room"
