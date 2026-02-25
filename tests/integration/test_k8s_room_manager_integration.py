@@ -4,7 +4,7 @@ Mock boundary: only _k8s_core (the Kubernetes API client).
 Everything else — room state transitions, index management, error handling — is real.
 
 Three areas covered:
-  1. _recover_existing_rooms  — pod phase → room status mapping
+  1. _recover_existing_rooms  — pod phase => room status mapping
   2. _wait_for_pod_deletion   — polling loop logic
   3. _create_and_register_room — creation flow and room registration
 """
