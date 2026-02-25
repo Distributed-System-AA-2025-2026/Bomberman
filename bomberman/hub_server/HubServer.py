@@ -258,7 +258,6 @@ class HubServer:
 
     def _forward_message(self, message: pb.GossipMessage):
         alive_peers: list[HubPeer] = self._state.get_all_not_dead_peers(self._hub_index)
-        # alive_peers: list[HubPeer] = self._state.get_all_not_dead_peers()
         targets: list[HubPeer] = random.sample(alive_peers, min(self._fanout, len(alive_peers)))
         references: list[ServerReference] = list(map(lambda e: e.reference, targets))
         message.forwarded_by = self._hub_index
