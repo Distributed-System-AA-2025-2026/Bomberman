@@ -24,7 +24,7 @@ def udp_send(msg: pb.GossipMessage, port: int) -> None:
         s.sendto(msg.SerializeToString(), ("127.0.0.1", port))
     finally:
         s.close()
-    time.sleep(0.5)
+    time.sleep(1)
 
 
 class TestDeduplicationViaRealUDP:
