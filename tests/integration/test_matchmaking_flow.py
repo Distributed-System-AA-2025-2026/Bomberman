@@ -43,6 +43,9 @@ def wait_for(condition, timeout: float = 2.0, interval: float = 0.05):
         time.sleep(interval)
     return False
 
+def udp_send_and_wait(msg: pb.GossipMessage, port: int, condition, timeout: float = 2.0) -> bool:
+    udp_send(msg, port)
+    return wait_for(condition, timeout=timeout)
 
 class TestRoomFilledViaGossip:
     """
@@ -66,17 +69,24 @@ class TestRoomFilledViaGossip:
             players_already_counted = 1
             max_players = first_room.max_players
 
-            # Send ROOM_PLAYER_JOINED to fill the room via gossip
             for i in range(players_already_counted, max_players):
-                msg = pb.GossipMessage(
-                    nonce=100 + i, origin=1, forwarded_by=1,
-                    timestamp=time.time(),
-                    event_type=pb.ROOM_PLAYER_JOINED,
-                    room_player_joined=pb.RoomPlayerJoined(room_id=first_room_id),
+                expected_count = i + 1
+                ok = udp_send_and_wait(
+                    pb.GossipMessage(
+                        nonce=100 + i, origin=1, forwarded_by=1,
+                        timestamp=time.time(),
+                        event_type=pb.ROOM_PLAYER_JOINED,
+                        room_player_joined=pb.RoomPlayerJoined(room_id=first_room_id),
+                    ),
+                    port=19460,
+                    condition=lambda c=expected_count: first_room.player_count >= c,
                 )
-                udp_send(msg, 19460)
+                assert ok, (
+                    f"player_count did not reach {expected_count} after message {i}. "
+                    f"Got {first_room.player_count}."
+                )
 
-            assert wait_for(lambda: not first_room.is_joinable), (
+            assert not first_room.is_joinable, (
                 f"Room {first_room_id} should be full after {max_players} players, "
                 f"got player_count={first_room.player_count}"
             )

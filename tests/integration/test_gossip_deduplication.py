@@ -162,10 +162,9 @@ class TestDeduplicationViaRealUDP:
             )
 
             udp_send(msg1, 19452)
-            # Wait for msg1 to be processed before sending msg2, so the peer
-            # exists when PEER_ALIVE arrives (otherwise heartbeat check fails)
-            assert wait_for(lambda: server._state.get_peer(1) is not None), \
-                "Peer-1 must exist after PEER_JOIN before sending PEER_ALIVE"
+            assert wait_for(
+                lambda: (p := server._state.get_peer(1)) is not None and p.heartbeat == 1
+            ), "Peer-1 must be fully processed (heartbeat=1) before sending PEER_ALIVE"
 
             udp_send(msg2, 19452)
 
