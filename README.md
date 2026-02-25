@@ -66,7 +66,7 @@ The project includes a complete Kubernetes setup for orchestrating the Hub and R
 
 We provide utility scripts to streamline local deployment.
 
-1. **Build and Deploy:**
+1. **Build and Deploy (Development):**
 Navigate to the scripts directory and run the deployment script.
 ```bash
 cd k8s/scripts
@@ -88,9 +88,9 @@ To tear down the cluster resources:
 
 ---
 
-## How to Play
+## How to Play - Production Ready
 
-Once the infrastructure is running:
+The game is already deployed on a public Kubernetes cluster, you just need to run the client to connect to the matchmaking service.
 
 1. **Start the Client:**
 ```bash
@@ -101,6 +101,8 @@ poetry run python Client.py
 * `WASD` or Arrow Keys: Move
 * `SPACE`: Place Bomb
 * `Q`: Quit
+
+> In order to play with the local deployment, ensure that the client is configured to connect to the local microk8s ingress (e.g., http://localhost/matchmaking).
 
 ---
 
