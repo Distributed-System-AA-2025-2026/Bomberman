@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 from bomberman.hub_server.room_manager.K8sRoomManager import K8sRoomManager
 from bomberman.hub_server.Room import Room
@@ -100,7 +100,7 @@ class TestK8sInitializePool:
 
     @patch("bomberman.hub_server.room_manager.K8sRoomManager.sleep")
     def test_creates_room_when_recovery_finds_nothing(self, mock_sleep):
-        """Recovery returns 0 rooms → must create STARTING_POOL_SIZE (1) room."""
+        """Recovery returns 0 rooms => must create STARTING_POOL_SIZE (1) room."""
         mgr = self._create_manager()
         with patch.object(mgr, '_recover_existing_rooms'), \
              patch.object(mgr, '_create_and_register_room') as mock_create:
@@ -118,7 +118,7 @@ class TestK8sInitializePool:
 
     @patch("bomberman.hub_server.room_manager.K8sRoomManager.sleep")
     def test_skips_creation_when_recovery_finds_enough_rooms(self, mock_sleep):
-        """Recovery already found >= STARTING_POOL_SIZE rooms → no new rooms created."""
+        """Recovery already found >= STARTING_POOL_SIZE rooms => no new rooms created."""
         mgr = self._create_manager()
 
         def fake_recover():
@@ -148,7 +148,7 @@ class TestK8sInitializePool:
 
     @patch("bomberman.hub_server.room_manager.K8sRoomManager.sleep")
     def test_last_used_index_zero_when_no_rooms_at_all(self, mock_sleep):
-        """If recovery and creation both produce nothing → index stays 0."""
+        """If recovery and creation both produce nothing => index stays 0."""
         mgr = self._create_manager()
         with patch.object(mgr, '_recover_existing_rooms'), \
              patch.object(mgr, '_create_and_register_room', return_value=None):
@@ -181,7 +181,7 @@ class TestK8sActivateRoomOverride:
         return mgr
 
     def test_prefers_existing_dormant_over_creating_new(self):
-        """Base class has a dormant room → use it, don't create anything."""
+        """Base class has a dormant room => use it, don't create anything."""
         mgr = self._create_manager()
         dormant = Room("hub0-0", 0, RoomStatus.DORMANT, 30000, "svc")
         mgr._local_rooms["hub0-0"] = dormant
@@ -194,7 +194,7 @@ class TestK8sActivateRoomOverride:
         assert dormant.status == RoomStatus.ACTIVE
 
     def test_creates_new_room_and_activates_it(self):
-        """No dormant rooms → creates a new one via K8s, then activates it."""
+        """No dormant rooms => creates a new one via K8s, then activates it."""
         mgr = self._create_manager()
         mgr._last_used_room_index = 2
 
@@ -212,7 +212,7 @@ class TestK8sActivateRoomOverride:
         assert new_room.status == RoomStatus.ACTIVE
 
     def test_returns_none_when_k8s_creation_fails(self):
-        """K8s can't create the room (API error, quota, etc.) → returns None."""
+        """K8s can't create the room (API error, quota, etc.) => returns None."""
         mgr = self._create_manager()
 
         with patch.object(mgr, '_create_and_register_room', return_value=None):

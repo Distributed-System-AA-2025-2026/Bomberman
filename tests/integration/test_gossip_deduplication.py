@@ -1,3 +1,18 @@
+"""
+Integration tests for gossip deduplication.
+
+Mock boundary: nothing. Real HubServer, real HubSocketHandler, real UDP.
+
+Unit tests verify the deduplication gate (execute_heartbeat_check returns False
+for old nonces, _process_message is not called). What they don't test is the
+end-to-end effect when the same nonce arrives via multiple real UDP paths —
+the typical gossip scenario where fanout creates duplicate deliveries.
+
+The integration value: same nonce+origin sent from two different UDP sockets
+(simulating two different forwarders) must produce exactly one state mutation,
+not two.
+"""
+
 import os
 import socket
 import time
@@ -14,6 +29,10 @@ def make_server(gossip_port: int):
 
     from bomberman.hub_server.HubServer import HubServer
     server = HubServer("manual")
+    # Bind is synchronous in HubSocketHandler.__init__, so the socket is already
+    # occupied when HubServer() returns. UDP packets sent before recvfrom starts
+    # are kernel-buffered no need to probe the port. A short sleep is enough
+    # to let the listener thread reach recvfrom before the test sends traffic.
     time.sleep(0.1)
     return server
 
@@ -24,7 +43,23 @@ def udp_send(msg: pb.GossipMessage, port: int) -> None:
         s.sendto(msg.SerializeToString(), ("127.0.0.1", port))
     finally:
         s.close()
-    time.sleep(0.5)
+
+
+def wait_for(condition, timeout: float = 2.0, interval: float = 0.05):
+    """
+    Poll until condition() returns truthy or timeout expires.
+
+    Replaces fixed time.sleep() before assertions: the listener loop spawns
+    a handler thread per message, and on slow schedulers (Windows) that thread
+    may not complete within a fixed sleep. Polling makes the test wait exactly
+    as long as needed.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if condition():
+            return True
+        time.sleep(interval)
+    return False
 
 
 class TestDeduplicationViaRealUDP:
@@ -53,10 +88,14 @@ class TestDeduplicationViaRealUDP:
 
             udp_send(msg_via_2, 19450)
             udp_send(msg_via_3, 19450)
-            time.sleep(0.15)
+
+            assert wait_for(lambda: server._state.get_peer(1) is not None), \
+                "Peer-1 must be registered after PEER_JOIN"
+
+            # Extra wait: let both handler threads complete before checking heartbeat
+            time.sleep(0.1)
 
             peer = server._state.get_peer(1)
-            assert peer is not None, "Peer-1 must be registered after PEER_JOIN"
             assert peer.heartbeat == 1, (
                 f"Heartbeat must be 1 (recorded once), got {peer.heartbeat}. "
                 "Duplicate processing may have corrupted state."
@@ -86,10 +125,11 @@ class TestDeduplicationViaRealUDP:
                 )
                 udp_send(msg, 19451)
 
-            time.sleep(0.15)
+            assert wait_for(lambda: server._state.get_room("hub1-0") is not None), \
+                "Room must be registered after ROOM_ACTIVATED"
 
-            room = server._state.get_room("hub1-0")
-            assert room is not None, "Room must be registered after ROOM_ACTIVATED"
+            # Extra wait: let both handler threads complete before counting rooms
+            time.sleep(0.1)
 
             all_rooms = server._state.get_all_rooms()
             room_ids = [r.room_id for r in all_rooms if r.room_id == "hub1-0"]
@@ -122,12 +162,17 @@ class TestDeduplicationViaRealUDP:
             )
 
             udp_send(msg1, 19452)
+            assert wait_for(
+                lambda: (p := server._state.get_peer(1)) is not None and p.heartbeat == 1
+            ), "Peer-1 must be fully processed (heartbeat=1) before sending PEER_ALIVE"
+
             udp_send(msg2, 19452)
 
-            peer = server._state.get_peer(1)
-            assert peer is not None
-            assert peer.heartbeat == 2, (
-                f"Expected heartbeat=2 after two sequential messages, got {peer.heartbeat}. "
+            assert wait_for(
+                lambda: (p := server._state.get_peer(1)) is not None and p.heartbeat == 2
+            ), (
+                f"Expected heartbeat=2 after two sequential messages, "
+                f"got {getattr(server._state.get_peer(1), 'heartbeat', None)}. "
                 "The deduplication gate may be blocking valid new messages."
             )
         finally:
@@ -155,12 +200,14 @@ class TestDeduplicationViaRealUDP:
             )
 
             udp_send(msg_new, 19453)
-            time.sleep(0.05)
+            assert wait_for(lambda: server._state.get_peer(1) is not None), \
+                "Peer-1 must exist after msg_new"
+
             udp_send(msg_stale, 19453)
-            time.sleep(0.1)
+            # Give the stale message time to be processed (and wrongly overwrite, if broken)
+            time.sleep(0.2)
 
             peer = server._state.get_peer(1)
-            assert peer is not None
             assert peer.heartbeat == 10, (
                 f"Stale duplicate overwrote heartbeat. Expected 10, got {peer.heartbeat}. "
                 "The deduplication gate is not rejecting lower nonces correctly."

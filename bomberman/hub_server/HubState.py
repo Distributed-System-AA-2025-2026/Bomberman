@@ -166,3 +166,38 @@ class HubState:
         with self._lock:
             if room_id in self._known_rooms:
                 del self._known_rooms[room_id]
+
+    def ensure_peer_and_check_heartbeat(
+            self,
+            peer_index: int,
+            peer_reference: ServerReference,
+            received_heartbeat: int,
+            is_peer_leaving: bool = False,
+    ) -> bool:
+        """
+        Atomic version of ensure_peer_exists + execute_heartbeat_check.
+        """
+        with self._lock:
+            # Ensure peer exists under the same lock as the heartbeat check
+            if self.get_peer(peer_index) is None:
+                from bomberman.hub_server.HubPeer import HubPeer
+                peer = HubPeer(peer_reference, peer_index)
+                while peer.index >= len(self._peers):
+                    self._peers.append(None)
+                self._peers[peer.index] = peer
+
+            last_heartbeat = self._peers[peer_index].heartbeat
+
+            if self._peers[peer_index].status == 'dead' and is_peer_leaving:
+                return False
+            if self._peers[peer_index].status == 'dead' and not is_peer_leaving:
+                self._peers[peer_index].heartbeat = received_heartbeat
+                self._peers[peer_index].status = 'alive'
+                return True
+            if last_heartbeat < received_heartbeat:
+                self._peers[peer_index].heartbeat = received_heartbeat
+                self._peers[peer_index].status = 'alive'
+                if is_peer_leaving:
+                    self._peers[peer_index].status = 'dead'
+                return True
+            return False
