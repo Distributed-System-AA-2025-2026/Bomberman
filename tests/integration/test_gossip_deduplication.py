@@ -40,7 +40,6 @@ def udp_send(msg: pb.GossipMessage, port: int) -> None:
         s.sendto(msg.SerializeToString(), ("127.0.0.1", port))
     finally:
         s.close()
-    time.sleep(1)
 
 
 class TestDeduplicationViaRealUDP:
@@ -138,7 +137,9 @@ class TestDeduplicationViaRealUDP:
             )
 
             udp_send(msg1, 19452)
+            time.sleep(0.05)
             udp_send(msg2, 19452)
+            time.sleep(0.1)
 
             peer = server._state.get_peer(1)
             assert peer is not None

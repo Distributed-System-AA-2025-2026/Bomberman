@@ -1,10 +1,28 @@
 import os
 import time
-import pytest
 from unittest.mock import patch, MagicMock
 
 from bomberman.hub_server.Room import Room
 from bomberman.common.RoomState import RoomStatus
+import socket
+
+
+# ---------------------------------------------------------------------------
+# Factory: real HubServer with real RoomHealthMonitor, only requests mocked
+# ---------------------------------------------------------------------------
+
+def _wait_until_listening(port: int, timeout: float = 5.0) -> None:
+    """Block until the server's UDP socket is bound and ready to receive."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.bind(("0.0.0.0", port))
+            probe.close()
+        except OSError:
+            return
+        time.sleep(0.05)
+    raise TimeoutError(f"Server did not bind to UDP port {port} within {timeout}s")
 
 
 def make_server(gossip_port: int):
@@ -15,9 +33,13 @@ def make_server(gossip_port: int):
 
     from bomberman.hub_server.HubServer import HubServer
     server = HubServer("manual")
-    time.sleep(0.05)
+    _wait_until_listening(gossip_port)
     return server
 
+
+# ---------------------------------------------------------------------------
+# Local room: unhealthy → PLAYING + gossip broadcast
+# ---------------------------------------------------------------------------
 
 class TestLocalRoomUnhealthy:
     """

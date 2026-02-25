@@ -5,6 +5,19 @@ import pytest
 
 from bomberman.hub_server.gossip import messages_pb2 as pb
 
+def _wait_until_listening(port: int, timeout: float = 5.0) -> None:
+    """Block until the server's UDP socket is bound and ready to receive."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.bind(("0.0.0.0", port))
+            probe.close()
+        except OSError:
+            return
+        time.sleep(0.05)
+    raise TimeoutError(f"Server did not bind to UDP port {port} within {timeout}s")
+
 
 def make_server(gossip_port: int):
     """Instantiate a real HubServer. No mocks."""
@@ -15,7 +28,7 @@ def make_server(gossip_port: int):
 
     from bomberman.hub_server.HubServer import HubServer
     server = HubServer("manual")
-    time.sleep(0.1)  # let the listener thread bind and start
+    _wait_until_listening(gossip_port)
     return server
 
 

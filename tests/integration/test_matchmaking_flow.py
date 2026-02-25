@@ -13,8 +13,7 @@ def _wait_until_listening(port: int, timeout: float = 5.0) -> None:
     while time.time() < deadline:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            probe.bind(("127.0.0.1", port))
-            # Bind succeeded => server hasn't claimed the port yet
+            probe.bind(("0.0.0.0", port))
             probe.close()
         except OSError:
             # Address already in use => server is ready
@@ -41,7 +40,6 @@ def udp_send(msg: pb.GossipMessage, port: int) -> None:
         s.sendto(msg.SerializeToString(), ("127.0.0.1", port))
     finally:
         s.close()
-    time.sleep(1)
 
 class TestRoomFilledViaGossip:
     """
@@ -77,7 +75,7 @@ class TestRoomFilledViaGossip:
                 )
                 udp_send(msg, 19460)
 
-            time.sleep(1)
+            time.sleep(0.2)
 
             assert not first_room.is_joinable, (
                 f"Room {first_room_id} should be full after {max_players} players, "
@@ -115,7 +113,6 @@ class TestRoomFilledViaGossip:
                     room_player_joined=pb.RoomPlayerJoined(room_id=room_id),
                 )
                 udp_send(msg, 19461)
-                time.sleep(0.2)
 
             time.sleep(0.2)
 
@@ -130,7 +127,7 @@ class TestRoomFilledViaGossip:
     def test_duplicate_gossip_does_not_double_count_player(self):
         """
         The same ROOM_PLAYER_JOINED nonce arriving twice (two forwarders)
-        must increment player_count only once — deduplication must apply
+        must increment player_count only once deduplication must apply
         to player counting too, not just to peer state updates.
         """
         server = make_server(19462)

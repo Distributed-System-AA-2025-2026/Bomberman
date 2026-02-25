@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 from bomberman.hub_server.room_manager.K8sRoomManager import K8sRoomManager
 from bomberman.hub_server.Room import Room

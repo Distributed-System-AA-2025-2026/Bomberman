@@ -1,21 +1,7 @@
-"""
-Integration tests for K8sRoomManager.
-Mock boundary: only _k8s_core (the Kubernetes API client).
-Everything else — room state transitions, index management, error handling — is real.
-
-Three areas covered:
-  1. _recover_existing_rooms  — pod phase => room status mapping
-  2. _wait_for_pod_deletion   — polling loop logic
-  3. _create_and_register_room — creation flow and room registration
-"""
-
-import pytest
-import time
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 from kubernetes.client.exceptions import ApiException
 
 from bomberman.hub_server.room_manager.K8sRoomManager import K8sRoomManager
-from bomberman.hub_server.Room import Room
 from bomberman.common.RoomState import RoomStatus
 
 def make_manager(hub_index: int = 0) -> K8sRoomManager:
