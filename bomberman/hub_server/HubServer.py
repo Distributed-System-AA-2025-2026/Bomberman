@@ -122,11 +122,17 @@ class HubServer:
         sender = self._resolve_server_reference(sender, message.forwarded_by)
         # Traccia l'origine se diverso dal forwarder
         self._ensure_peer_exists(message.forwarded_by)
-        if message.forwarded_by != message.origin:
-            self._ensure_peer_exists(message.origin)
 
-        is_new = self._state.execute_heartbeat_check(message.origin, message.nonce, message.event_type == pb.PEER_LEAVE)
-        self._state.mark_forward_peer_as_alive(message.forwarded_by, sender)  # Marking forwarder as alive
+        # Atomic: ensure origin exists AND check heartbeat under one lock
+        origin_ref = self._calculate_server_reference(message.origin)
+        is_new = self._state.ensure_peer_and_check_heartbeat(
+            peer_index=message.origin,
+            peer_reference=origin_ref,
+            received_heartbeat=message.nonce,
+            is_peer_leaving=message.event_type == pb.PEER_LEAVE,
+        )
+
+        self._state.mark_forward_peer_as_alive(message.forwarded_by, sender)
         if not is_new:
             return
 
