@@ -146,7 +146,7 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Wait for system to stabilize
-        run: sleep 300
+        run: sleep 600
 
       - name: Install Poetry
         run: |
